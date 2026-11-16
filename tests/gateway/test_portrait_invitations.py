@@ -6,6 +6,7 @@ import os
 from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from types import MappingProxyType
 from typing import Final, Literal, cast
 from urllib.parse import unquote
@@ -14,6 +15,7 @@ from uuid import uuid4
 import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
+from PIL import Image
 from pydantic import TypeAdapter
 
 from gateway.providers.byteplus_assets import BytePlusAssetClient, BytePlusAssetSettings
@@ -30,7 +32,7 @@ from gateway.routes.portrait_invitations import (
     router,
     start_invitation,
 )
-from gateway.routes.provider_assets import VerificationResultRequest, resolve_verification_result
+from gateway.routes.provider_assets import VerificationResultRequest, get_asset_client, resolve_verification_result
 from gateway.verification.service import CONSENT_VERSION, token_hash
 from gateway.verification.store import (
     Verification,
@@ -47,6 +49,12 @@ from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 
 TOKEN: Final = "a" * 43
 JSON_OBJECT: Final = TypeAdapter(dict[str, object])
+
+
+def sample_photo() -> bytes:
+    output: Final = BytesIO()
+    Image.new("RGB", (320, 320), "white").save(output, format="PNG")
+    return output.getvalue()
 
 
 def record(**changes: object) -> Verification:
@@ -114,6 +122,10 @@ class MemoryStore:
 
     async def cancel(self, id: str) -> None:
         self.update(id, {"cancelled_at": datetime.now(timezone.utc), "h5_link": None})
+
+    async def save_photo(self, id: str, url: str, asset_id: str) -> None:
+        self.update(id, {"photo_url": url, "photo_asset_id": asset_id,
+                         "photo_submitted_at": datetime.now(timezone.utc)})
 
     async def reserve_voice(self, id: str, upload_id: str, seconds: int) -> bool:
         current: Final = await self.one("id", id)
@@ -336,6 +348,77 @@ async def test_guest_http_route_is_account_free_and_requires_consent() -> None:
             json={"token": TOKEN, "consent": False, "consentVersion": CONSENT_VERSION},
         )
         assert rejected.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_guest_photo_enters_verified_group_and_owner_can_find_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    store: Final = MemoryStore(record(group_id="group-1"))
+    fixture: Final = ProviderFixture({"Result": {"Asset": {"Id": "asset-1"}}})
+    uploads: list[tuple[str, str]] = []
+
+    async def upload(owner: str, content: bytes, content_type: str, name: str) -> str:
+        uploads.append((owner, content_type))
+        return "https://media.xcity.ai/media/u/creator/refs/photo.png"
+
+    monkeypatch.setattr("gateway.routes.portrait_invitations.upload_for_inviter", upload)
+    app: Final = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_store] = lambda: store
+    app.dependency_overrides[get_asset_client] = lambda: fixture.client
+    app.dependency_overrides[user_api_key_auth] = creator
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response: Final = await client.post(
+            "/v1/provider-assets/invitations/photo",
+            data={"token": TOKEN},
+            files={"file": ("photo.png", sample_photo(), "image/png")},
+        )
+        assert response.status_code == 200
+        assert uploads == [("creator", "image/png")]
+        assert fixture.calls[0][0] == "CreateAsset"
+        assert fixture.calls[0][1]["GroupId"] == "group-1"
+        assert fixture.calls[0][1]["URL"] == "https://media.xcity.ai/download/u/creator/refs/photo.png"
+        inspected: Final = await client.post("/v1/provider-assets/invitations/inspect", json={"token": TOKEN})
+        assert JSON_OBJECT.validate_json(inspected.content)["photoStep"] == {"enabled": True, "submitted": True}
+        assert "photo_url" not in inspected.text
+        listed: Final = await client.get("/v1/provider-assets/invitations")
+        rows: Final = TypeAdapter(tuple[dict[str, object], ...]).validate_python(
+            JSON_OBJECT.validate_json(listed.content)["invitations"]
+        )
+        photo: Final = TypeAdapter(dict[str, object]).validate_python(rows[0]["photo"])
+        assert photo["assetId"] == "asset-1"
+        repeated: Final = await client.post(
+            "/v1/provider-assets/invitations/photo",
+            data={"token": TOKEN},
+            files={"file": ("photo.png", sample_photo(), "image/png")},
+        )
+        assert repeated.status_code == 409
+        assert uploads == [("creator", "image/png")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("group_id,expired,expected", [(None, False, 409), ("group-1", True, 410)])
+async def test_guest_photo_requires_verified_unexpired_invitation(
+    monkeypatch: pytest.MonkeyPatch, group_id: str | None, expired: bool, expected: int
+) -> None:
+    async def must_not_upload(*args: object) -> str:
+        pytest.fail("media upload must not start before verification or after expiry")
+
+    monkeypatch.setattr("gateway.routes.portrait_invitations.upload_for_inviter", must_not_upload)
+    item: Final = record(
+        group_id=group_id,
+        expires_at=datetime.now(timezone.utc) + timedelta(seconds=-1 if expired else 3600),
+    )
+    store: Final = MemoryStore(item)
+    app: Final = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_store] = lambda: store
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response: Final = await client.post(
+            "/v1/provider-assets/invitations/photo",
+            data={"token": TOKEN},
+            files={"file": ("photo.png", sample_photo(), "image/png")},
+        )
+        assert response.status_code == expected
 
 
 @pytest.mark.asyncio

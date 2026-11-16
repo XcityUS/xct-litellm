@@ -9,18 +9,21 @@ from urllib.parse import urlencode, urlparse
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 from starlette.datastructures import FormData, UploadFile
 from typing_extensions import ReadOnly, TypedDict
 
 from gateway.providers.byteplus_assets import BytePlusAssetClient
 from gateway.routes.provider_assets import asset_owner, get_asset_client
+from gateway.verification.media import upload_for_inviter, validate_photo
 from gateway.verification.service import (
     CONSENT_VERSION,
     available,
     create_session,
+    field,
     finish,
     localized_h5_link,
+    provider_call,
     public_view,
     token_hash,
 )
@@ -73,6 +76,15 @@ class VoiceFields(InvitationToken):
 
 class VoiceSubmitted(TypedDict):
     voiceStep: ReadOnly[VoiceStep]
+
+
+class PhotoStep(TypedDict):
+    enabled: ReadOnly[bool]
+    submitted: ReadOnly[bool]
+
+
+class PhotoSubmitted(TypedDict):
+    photoStep: ReadOnly[PhotoStep]
 
 
 class VoiceAcknowledged(TypedDict):
@@ -158,7 +170,16 @@ async def list_invitations(
 ) -> dict[str, object]:
     return {
         "invitations": tuple(
-            {**public_view(item), "groupId": item.group_id, "voice": voice_view(item)}
+            {
+                **public_view(item),
+                "groupId": item.group_id,
+                "photo": (
+                    {"assetId": item.photo_asset_id, "url": item.photo_url,
+                     "submittedAt": item.photo_submitted_at.isoformat()}
+                    if item.photo_asset_id and item.photo_submitted_at else None
+                ),
+                "voice": voice_view(item),
+            }
             for item in await store.list(asset_owner(auth))
         )
     }
@@ -186,7 +207,12 @@ async def inspect_invitation(
 ) -> Mapping[str, object]:
     async with store.transaction() as transaction:
         record: Final = await transaction.one("token_hash", token_hash(body.token))
-        return MappingProxyType({**public_view(record), "voiceStep": voice_step(record)})
+        photo: Final = PhotoStep(
+            enabled=record.cancelled_at is None and record.group_id is not None
+            and record.expires_at > datetime.now(timezone.utc),
+            submitted=record.photo_asset_id is not None,
+        )
+        return MappingProxyType({**public_view(record), "photoStep": photo, "voiceStep": voice_step(record)})
 
 
 @router.post("/start")
@@ -223,6 +249,49 @@ async def complete_invitation(
             raise HTTPException(403, "VERIFICATION_SESSION_MISMATCH")
         await finish(record, transaction, client)
         return {"status": "verified"}
+
+
+@router.post("/photo")
+async def submit_photo(
+    request: Request,
+    store: VerificationRepository = Depends(get_store),
+    client: BytePlusAssetClient = Depends(get_asset_client),
+) -> PhotoSubmitted:
+    async with request.form(max_files=1, max_fields=2) as form:
+        try:
+            token: Final = InvitationToken.model_validate({"token": form.get("token")}).token
+        except ValidationError as exc:
+            raise HTTPException(404, "INVITATION_NOT_FOUND") from exc
+        file: Final = form.get("file")
+        if not isinstance(file, UploadFile):
+            raise HTTPException(400, "PHOTO_INVALID")
+        content_type: Final = (file.content_type or "").split(";")[0].strip().lower()
+        content: Final = await file.read(10 * 1024 * 1024 + 1)
+        name: Final = file.filename or "photo"
+    validate_photo(content, content_type)
+    async with store.transaction() as transaction:
+        record: Final = await transaction.one("token_hash", token_hash(token))
+        available(record)
+        if record.group_id is None:
+            raise HTTPException(409, "VERIFICATION_INCOMPLETE")
+        if record.expires_at <= datetime.now(timezone.utc):
+            raise HTTPException(410, "INVITATION_EXPIRED")
+        if record.photo_asset_id is not None:
+            raise HTTPException(409, "PHOTO_ALREADY_SUBMITTED")
+        url: Final = await upload_for_inviter(record.owner_id, content, content_type, name)
+        payload: Final = await provider_call(client, "CreateAsset", {
+            "GroupId": record.group_id,
+            "URL": url.replace("/media/", "/download/", 1),
+            "Name": name[:64],
+            "AssetType": "Image",
+        })
+        value: Final = payload.get("Asset")
+        asset: Final = TypeAdapter(dict[str, object]).validate_python(value) if isinstance(value, dict) else payload
+        asset_id: Final = field(asset, "Id", "ID", "AssetId", "assetId")
+        if not asset_id:
+            raise HTTPException(502, "VERIFICATION_PROVIDER_UNAVAILABLE")
+        await transaction.save_photo(record.id, url, asset_id)
+    return PhotoSubmitted(photoStep=PhotoStep(enabled=True, submitted=True))
 
 
 @router.post("/voice")

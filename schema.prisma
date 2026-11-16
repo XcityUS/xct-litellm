@@ -1879,6 +1879,9 @@ model LiteLLM_AssetVerification {
   group_id        String?
   cancelled_at   DateTime? @client.Timestamptz(6)
   attempts        Int      @default(0)
+  photo_url             String?
+  photo_asset_id        String?
+  photo_submitted_at    DateTime? @client.Timestamptz(6)
   voice_url             String?
   voice_key             String?
   voice_language        String?

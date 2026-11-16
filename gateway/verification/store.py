@@ -32,6 +32,9 @@ class Verification(BaseModel):
     group_id: str | None = None
     cancelled_at: datetime | None = None
     attempts: int = 0
+    photo_url: str | None = None
+    photo_asset_id: str | None = None
+    photo_submitted_at: datetime | None = None
     voice_url: str | None = None
     voice_key: str | None = None
     voice_language: str | None = None
@@ -73,6 +76,7 @@ class VerificationRepository(Protocol):
     async def session(self, id: str, token: str, link: str, consent: str) -> None: ...
     async def complete(self, id: str, group: str) -> None: ...
     async def cancel(self, id: str) -> None: ...
+    async def save_photo(self, id: str, url: str, asset_id: str) -> None: ...
     async def reserve_voice(self, id: str, upload_id: str, seconds: int) -> bool: ...
     async def release_voice(self, id: str, upload_id: str) -> None: ...
     async def voice(self, id: str, sample: VoiceSample, upload_id: str) -> None: ...
@@ -151,6 +155,13 @@ class VerificationStore:
 
     async def cancel(self, id: str) -> None:
         await self.db.execute_raw(f"UPDATE {TABLE} SET cancelled_at=now(),h5_link=NULL WHERE id=$1", id)
+
+    async def save_photo(self, id: str, url: str, asset_id: str) -> None:
+        await self.db.execute_raw(
+            f"""UPDATE {TABLE} SET photo_url=$2,photo_asset_id=$3,photo_submitted_at=now()
+                WHERE id=$1 AND photo_asset_id IS NULL""",
+            id, url, asset_id,
+        )
 
     async def reserve_voice(self, id: str, upload_id: str, seconds: int) -> bool:
         changed: Final = await self.db.execute_raw(
