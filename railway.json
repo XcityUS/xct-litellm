@@ -2,10 +2,10 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "DOCKERFILE",
-    "dockerfilePath": "./gateway/Dockerfile"
+    "dockerfilePath": "./litellm/deploy/docker/Dockerfile"
   },
   "deploy": {
-    "preDeployCommand": "python -m migrations.run",
+    "preDeployCommand": "python -m litellm.runtime.migrations.run",
     "healthcheckPath": "/health/liveliness",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",
