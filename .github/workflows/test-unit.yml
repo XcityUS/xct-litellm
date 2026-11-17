@@ -146,6 +146,7 @@ jobs:
               tests/unit/extraction
               tests/unit/litellm_core_utils
               tests/unit/systemone
+              tests/unit/tools
             python-version: "3.12"
             workers: 4
             reruns: 0
@@ -245,6 +246,7 @@ jobs:
               tests/unit/llms/bigmodel
               tests/unit/llms/black_forest_labs
               tests/unit/llms/brave
+              tests/unit/llms/byteplus
               tests/unit/llms/bytez
               tests/unit/llms/cerebras
               tests/unit/llms/chat
@@ -361,6 +363,7 @@ jobs:
               tests/unit/llms/strands_decider
               tests/unit/llms/tavily
               tests/unit/llms/tencent
+              tests/unit/llms/tencent_cloud
               tests/unit/llms/tinyfish
               tests/unit/llms/together_ai
               tests/unit/llms/tool_loop
@@ -538,6 +541,12 @@ jobs:
               tests/unit/proxy/openai_files_endpoint
               tests/unit/proxy/health_endpoints
               tests/unit/proxy/batches_endpoints
+              tests/unit/proxy/capability_endpoints
+              tests/unit/proxy/context_endpoints
+              tests/unit/proxy/skill_endpoints
+              tests/unit/proxy/webhook_endpoints
+              tests/unit/proxy/xct_app_endpoints
+              tests/unit/proxy/xct_oauth_endpoints
               --ignore=tests/unit/proxy/management_endpoints/test_jwt_key_mapping.py
               --ignore=tests/unit/proxy/management_endpoints/test_key_generate_prisma.py
               --ignore=tests/unit/proxy/management_endpoints/test_roi_calculator_endpoints.py
@@ -645,6 +654,8 @@ jobs:
               tests/unit/proxy/types_utils
               tests/unit/proxy/logging_endpoints
               tests/unit/gateway
+              tests/gateway
+              tests/test_gateway
               tests/unit/proxy/management
               tests/unit/proxy/management_endpoints/test_roi_calculator_endpoints.py
               tests/unit/proxy/roi_calculator

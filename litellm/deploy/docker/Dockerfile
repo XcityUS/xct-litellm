@@ -33,6 +33,7 @@ RUN curl -fsSL -o pgbouncer.tar.gz "https://www.pgbouncer.org/downloads/files/${
 FROM --platform=$BUILDPLATFORM $UI_BUILD_IMAGE AS ui-builder
 
 ENV NEXT_TELEMETRY_DISABLED=1 \
+    NODE_OPTIONS=--max-old-space-size=4096 \
     npm_config_fund=false \
     npm_config_audit=false
 
@@ -210,7 +211,7 @@ RUN find /app/.venv -depth -type d -path "*/tornado/test" -exec rm -rf {} + && \
     ls /opt/prisma/binaries/node_modules/@prisma/engines/query-engine-* >/dev/null && \
     python -c "from prisma.client import BINARY_PATHS; paths = list(BINARY_PATHS.query_engine.values()); assert paths and all(p.startswith('/opt/prisma/') for p in paths), paths" && \
     python -c "from litellm.rust_bridge import _native" && \
-    python -c "import gateway.launch, litellm.runtime.backend.main"
+    python -c "import gateway.launch, litellm.runtime.backend.main, litellm.runtime.migrations.run"
 
 USER 65532:65532
 
