@@ -4,8 +4,11 @@ Unit tests for the BytePlus image-generation and video-generation handlers.
 Transformation-layer tests (no network) plus env-gated live smoke tests.
 """
 
+import base64
+import json
 import os
 import sys
+from typing import Final
 
 import httpx
 import pytest
@@ -14,6 +17,7 @@ workspace_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../
 sys.path.insert(0, workspace_path)
 
 import litellm
+from litellm.llms.custom_httpx.http_handler import HTTPHandler
 from litellm.types.utils import ImageResponse, LlmProviders
 from litellm.utils import ProviderConfigManager
 
@@ -51,12 +55,12 @@ class TestBytePlusImageGeneration:
 
     def test_params_pass_through(self):
         mapped = self._cfg().map_openai_params(
-            non_default_params={"size": "1024x1024", "response_format": "url", "n": 2},
+            non_default_params={"size": "2848x1600", "response_format": "url", "n": 2},
             optional_params={},
             model="m",
             drop_params=False,
         )
-        assert mapped == {"size": "1024x1024", "response_format": "url", "n": 2}
+        assert mapped == {"size": "2848x1600", "response_format": "url", "n": 2}
 
     def test_validate_environment_requires_key(self, monkeypatch):
         monkeypatch.delenv("BYTEPLUS_API_KEY", raising=False)
@@ -110,6 +114,132 @@ class TestBytePlusImageGeneration:
             model="byteplus/seedream-4-5-251128", image_response=resp
         )
         assert cost == 0.04
+
+
+_SEEDREAM: Final = "byteplus/seedream-5-0-260128"
+# "Seedream 5.0 lite, 4.5, and 4.0 support up to 14 reference images": https://docs.byteplus.com/en/docs/ModelArk/1541523
+# (Image generation API, `image`), read 2026-11-19
+MAX_REFERENCE_IMAGES: Final = 14
+_URL_IMAGE: Final = "https://media.example.test/portrait.jpg"
+_BASE64_IMAGE: Final = "data:image/png;base64," + base64.b64encode(b"\x89PNG portrait bytes").decode()
+
+
+def _generate(sent: list[dict[str, object]], **params: object) -> ImageResponse:
+    def respond(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json={"created": 1, "data": [{"b64_json": "aW1n"}, {"b64_json": "aW1n"}]})
+
+    return litellm.image_generation(
+        model=_SEEDREAM,
+        prompt="the same person on a beach",
+        api_key="test-key",
+        client=HTTPHandler(client=httpx.Client(transport=httpx.MockTransport(respond))),
+        **params,
+    )
+
+
+class TestBytePlusReferenceImages:
+    @pytest.mark.parametrize(
+        "image",
+        [
+            _URL_IMAGE,
+            _BASE64_IMAGE,
+            [_URL_IMAGE, _BASE64_IMAGE],
+            [_BASE64_IMAGE] * MAX_REFERENCE_IMAGES,
+            ["data:image/jpeg;base64,AAAA", "data:image/jpg;base64,AA==", "data:image/webp;base64,QQ="],
+        ],
+    )
+    def test_reference_images_reach_the_provider_unchanged(self, image: str | list[str]) -> None:
+        sent: Final[list[dict[str, object]]] = []
+        _generate(sent, image=image)
+        assert len(sent) == 1
+        assert sent[0]["image"] == image
+
+    @pytest.mark.parametrize(
+        "image",
+        [
+            "http://media.example.test/portrait.jpg",
+            "https://",
+            "https://media.example.test/a portrait.jpg",
+            "ftp://media.example.test/portrait.jpg",
+            "data:image/gif;base64,R0lGODlh",
+            "data:image/PNG;base64,AAAA",
+            "data:image/png;base64,",
+            "data:image/png;base64,AA AA",
+            "data:image/png,AAAA",
+            "",
+            [],
+            [_BASE64_IMAGE] * (MAX_REFERENCE_IMAGES + 1),
+            [_URL_IMAGE, 7],
+            [_URL_IMAGE, "data:text/plain;base64,AAAA"],
+            {"url": _URL_IMAGE},
+            7,
+        ],
+    )
+    def test_invalid_reference_images_are_a_400_before_any_provider_call(self, image: object) -> None:
+        sent: Final[list[dict[str, object]]] = []
+        with pytest.raises(litellm.BadRequestError) as raised:
+            _generate(sent, image=image)
+        assert raised.value.status_code == 400
+        assert sent == []
+        assert "`image" in str(raised.value)
+
+    def test_rejection_names_the_bad_entry_without_echoing_any_payload(self) -> None:
+        secret_payload: Final = "data:image/bmp;base64," + "c2VjcmV0" * 64
+        with pytest.raises(litellm.BadRequestError) as raised:
+            _generate([], image=[_BASE64_IMAGE, secret_payload])
+        assert "`image[1]`" in str(raised.value)
+        assert "c2VjcmV0" not in str(raised.value)
+        assert _BASE64_IMAGE.split(",")[1] not in str(raised.value)
+
+    @pytest.mark.usefixtures("local_model_cost_map")
+    def test_reference_images_do_not_change_what_the_generated_images_cost(self) -> None:
+        rate: Final = litellm.get_model_info(_SEEDREAM)["output_cost_per_image"]
+        plain: Final = _generate([])
+        referenced: Final = _generate([], image=[_URL_IMAGE, _BASE64_IMAGE])
+
+        def cost(response: ImageResponse) -> float:
+            return litellm.completion_cost(completion_response=response, model=_SEEDREAM, call_type="image_generation")
+
+        assert rate is not None and rate > 0
+        assert cost(referenced) == cost(plain) == 2 * rate
+
+    def test_reference_images_are_top_level_fields_not_nested_in_extra_body(self) -> None:
+        sent: Final[list[dict[str, object]]] = []
+        _generate(sent, image=[_BASE64_IMAGE], size="2848x1600", additional_drop_params=["quality"])
+        assert sent[0]["image"] == [_BASE64_IMAGE]
+        assert "extra_body" not in sent[0]
+        assert sent[0]["size"] == "2848x1600"
+
+
+class TestBytePlusImageSize:
+    @pytest.mark.parametrize("size", ["2848x1600", "1600x2848", "2304x1728", "2K", "3136x1344"])
+    def test_seedream_sizes_reach_the_provider_unchanged(self, size: str) -> None:
+        sent: Final[list[dict[str, object]]] = []
+        _generate(sent, size=size)
+        assert sent[0]["size"] == size
+
+    @pytest.mark.parametrize(
+        ("size", "sent_size"),
+        [
+            ("1024x1024", "2048x2048"),
+            ("512x512", "2048x2048"),
+            ("256x256", "2048x2048"),
+            ("1536x1024", "2496x1664"),
+            ("1024x1536", "1664x2496"),
+            ("1792x1024", "2848x1600"),
+            ("1024x1792", "1600x2848"),
+        ],
+    )
+    def test_openai_sizes_become_the_seedream_size_of_the_same_ratio(self, size: str, sent_size: str) -> None:
+        sent: Final[list[dict[str, object]]] = []
+        _generate(sent, size=size)
+        assert sent[0]["size"] == sent_size
+
+    def test_no_size_is_the_square_default(self) -> None:
+        sent: Final[list[dict[str, object]]] = []
+        _generate(sent)
+        assert sent[0]["size"] == "2048x2048"
 
 
 # ----------------------------- video -----------------------------
