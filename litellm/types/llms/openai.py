@@ -1287,6 +1287,7 @@ OpenAIImageGenerationOptionalParams = Literal[
     "guidance",
     "steps",
     "imageConfig",
+    "image",
 ]
 
 OpenAIImageEditOptionalParams = Literal[
