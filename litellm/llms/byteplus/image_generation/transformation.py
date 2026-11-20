@@ -1,7 +1,9 @@
-from typing import TYPE_CHECKING, Any
+import re
+from typing import TYPE_CHECKING, Any, Final
 
 import httpx
 
+from litellm.exceptions import BadRequestError
 from litellm.llms.base_llm.image_generation.transformation import (
     BaseImageGenerationConfig,
 )
@@ -25,6 +27,43 @@ else:
 # valid size when the caller does not specify one.
 DEFAULT_IMAGE_SIZE = "2048x2048"
 
+# OpenAI sizes are all under that minimum; each becomes the 2K size of the same ratio from the `size` table of
+# https://docs.byteplus.com/en/docs/ModelArk/1541523 (read 2026-11-19)
+_OPENAI_SIZE_TO_SEEDREAM: Final = {
+    "256x256": DEFAULT_IMAGE_SIZE,
+    "512x512": DEFAULT_IMAGE_SIZE,
+    "1024x1024": DEFAULT_IMAGE_SIZE,
+    "1536x1024": "2496x1664",
+    "1024x1536": "1664x2496",
+    "1792x1024": "2848x1600",
+    "1024x1792": "1600x2848",
+}
+
+# https://docs.byteplus.com/en/docs/ModelArk/1541523 (Image generation API, `image`), read 2026-11-19: "Seedream 5.0
+# lite, 4.5, and 4.0 support up to 14 reference images". The 5.0 pro / flash and 5.5 models allow 10; BytePlus itself
+# rejects those above their own limit.
+MAX_REFERENCE_IMAGES: Final = 14
+_REFERENCE_IMAGE: Final = re.compile(
+    r"https://[^\s/?#]+\S*|data:image/(?:png|jpeg|jpg|webp);base64,[A-Za-z0-9+/]+={0,2}"
+)
+_REFERENCE_IMAGE_FORMATS: Final = "an https:// URL or a data:image/<png|jpeg|jpg|webp>;base64,<data> URI"
+
+
+def _is_reference_image(image: object) -> bool:
+    return isinstance(image, str) and _REFERENCE_IMAGE.fullmatch(image) is not None
+
+
+def reference_image_error(image: object) -> str | None:
+    """Why ``image`` is not a valid Seedream reference image field, or None when it is. Never echoes the payload."""
+    if isinstance(image, str):
+        return None if _is_reference_image(image) else f"`image` must be {_REFERENCE_IMAGE_FORMATS}"
+    if not isinstance(image, list) or not image:
+        return "`image` must be a string or a non-empty list of strings"
+    if len(image) > MAX_REFERENCE_IMAGES:
+        return f"`image` accepts at most {MAX_REFERENCE_IMAGES} reference images, got {len(image)}"
+    invalid: Final = next((index for index, item in enumerate(image) if not _is_reference_image(item)), None)
+    return None if invalid is None else f"`image[{invalid}]` must be {_REFERENCE_IMAGE_FORMATS}"
+
 
 class BytePlusImageGenerationConfig(BaseImageGenerationConfig):
     """
@@ -39,7 +78,7 @@ class BytePlusImageGenerationConfig(BaseImageGenerationConfig):
     IMAGE_GENERATION_ENDPOINT: str = "images/generations"
 
     def get_supported_openai_params(self, model: str) -> list[OpenAIImageGenerationOptionalParams]:
-        return ["n", "response_format", "size"]
+        return ["n", "response_format", "size", "image"]
 
     def map_openai_params(
         self,
@@ -49,6 +88,11 @@ class BytePlusImageGenerationConfig(BaseImageGenerationConfig):
         drop_params: bool,
     ) -> dict:
         supported_params = self.get_supported_openai_params(model)
+        image_error: Final = (
+            reference_image_error(non_default_params["image"]) if "image" in non_default_params else None
+        )
+        if image_error is not None:
+            raise BadRequestError(message=image_error, model=model, llm_provider="byteplus")
 
         for k, v in non_default_params.items():
             if k in optional_params:
@@ -68,6 +112,9 @@ class BytePlusImageGenerationConfig(BaseImageGenerationConfig):
         # BytePlus rejects sizes under 3,686,400 px (e.g. the OpenAI 1024x1024
         # default). Apply a valid default when size is not provided.
         optional_params.setdefault("size", DEFAULT_IMAGE_SIZE)
+        size: Final = optional_params["size"]
+        if isinstance(size, str) and size in _OPENAI_SIZE_TO_SEEDREAM:
+            optional_params["size"] = _OPENAI_SIZE_TO_SEEDREAM[size]
         # Default to base64 output when the caller does not specify a format.
         # BytePlus otherwise returns a signed URL, but several OpenAI-compatible
         # clients (e.g. LibreChat's image_gen_oai tool) only read `b64_json`
