@@ -8,20 +8,12 @@ https://github.com/caozhiyuan/copilot-api
 """
 
 import os
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Final,
-    cast,  # noqa: TID251  # narrows untyped request dicts at the session boundary
-)
+from typing import TYPE_CHECKING, Any, Final
 
 import httpx
-from pydantic import ConfigDict, TypeAdapter
 
 from litellm._logging import verbose_logger
 from litellm.exceptions import AuthenticationError
-from litellm.litellm_core_utils.url_utils import join_api_base
-from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.llms.base_llm.embedding.transformation import BaseEmbeddingConfig
 from litellm.types.llms.openai import AllEmbeddingInputValues
 from litellm.types.utils import EmbeddingResponse
@@ -30,11 +22,9 @@ from litellm.utils import convert_to_model_response_object
 from ..authenticator import Authenticator
 from ..common_utils import (
     DEFAULT_GITHUB_COPILOT_API_BASE,
-    GetAccessTokenError,
+    GetAPIKeyError,
     get_copilot_default_headers,
-    pin_session_authorization,
 )
-from ..per_user_auth import require_github_copilot_user_session
 
 if TYPE_CHECKING:
     from litellm.litellm_core_utils.litellm_logging import Logging as _LiteLLMLoggingObj
@@ -42,8 +32,6 @@ if TYPE_CHECKING:
     LiteLLMLoggingObj = _LiteLLMLoggingObj
 else:
     LiteLLMLoggingObj = Any
-
-_RESPONSE_OBJECT: Final = TypeAdapter(dict[str, object], config=ConfigDict(hide_input_in_errors=True))
 
 
 class GithubCopilotEmbeddingConfig(BaseEmbeddingConfig):
@@ -70,15 +58,6 @@ class GithubCopilotEmbeddingConfig(BaseEmbeddingConfig):
         """
         Validate environment and set up headers for GitHub Copilot API.
         """
-        user_session: Final = require_github_copilot_user_session(
-            cast("dict[str, object]", litellm_params)  # cast-ok: litellm_params arrives as an untyped request dict
-        )
-        if user_session is not None:
-            session_headers: Final = cast(  # cast-ok: both spreads are str-valued header dicts
-                "dict[str, str]", {**get_copilot_default_headers(user_session.token), **headers}
-            )
-            pin_session_authorization(session_headers, user_session.token, user_session.integration_id)
-            return session_headers
         try:
             # Get GitHub Copilot API key via OAuth
             api_key = self.authenticator.get_api_key()
@@ -100,7 +79,7 @@ class GithubCopilotEmbeddingConfig(BaseEmbeddingConfig):
 
             return merged_headers
 
-        except GetAccessTokenError as e:
+        except GetAPIKeyError as e:
             raise AuthenticationError(
                 model=model,
                 llm_provider="github_copilot",
@@ -119,18 +98,19 @@ class GithubCopilotEmbeddingConfig(BaseEmbeddingConfig):
         """
         Get the complete URL for GitHub Copilot Embedding API endpoint.
         """
-        user_session: Final = require_github_copilot_user_session(
-            cast("dict[str, object]", litellm_params)  # cast-ok: litellm_params arrives as an untyped request dict
-        )
-        effective_api_base: Final = (
-            (user_session.api_base if user_session is not None else None)
-            or api_base
+        # Use provided api_base or fall back to authenticator's base or default
+        effective_api_base = (
+            api_base
             or self.authenticator.get_api_base()
             or os.getenv("GITHUB_COPILOT_API_BASE")
             or DEFAULT_GITHUB_COPILOT_API_BASE
         )
 
-        return join_api_base(effective_api_base, "embeddings")
+        # Remove trailing slashes
+        effective_api_base = effective_api_base.rstrip("/")
+
+        # Return the embeddings endpoint
+        return f"{effective_api_base}/embeddings"
 
     def transform_embedding_request(
         self,
@@ -174,7 +154,7 @@ class GithubCopilotEmbeddingConfig(BaseEmbeddingConfig):
         logging_obj.post_call(original_response=raw_response.text)
 
         # GitHub Copilot returns standard OpenAI-compatible embedding response
-        response_json: Final = _RESPONSE_OBJECT.validate_python(raw_response.json())
+        response_json: Final = raw_response.json()
 
         return convert_to_model_response_object(
             response_object=response_json,
@@ -202,9 +182,7 @@ class GithubCopilotEmbeddingConfig(BaseEmbeddingConfig):
                 optional_params[param] = value
         return optional_params
 
-    def get_error_class(
-        self, error_message: str, status_code: int, headers: dict[str, str] | httpx.Headers
-    ) -> BaseLLMException:
+    def get_error_class(self, error_message: str, status_code: int, headers: Any) -> Any:
         from litellm.llms.openai.openai import OpenAIConfig
 
         return OpenAIConfig().get_error_class(error_message=error_message, status_code=status_code, headers=headers)

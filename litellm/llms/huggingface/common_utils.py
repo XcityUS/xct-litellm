@@ -58,7 +58,7 @@ def output_parser(generated_text: str):
 
 
 @lru_cache(maxsize=128)
-def fetch_inference_provider_mapping(model: str) -> dict:
+def _fetch_inference_provider_mapping(model: str) -> dict:
     """
     Fetch provider mappings for a model from the Hugging Face Hub.
 
@@ -100,6 +100,3 @@ def fetch_inference_provider_mapping(model: str) -> dict:
             status_code=status_code,
             headers=headers,
         )
-
-
-_fetch_inference_provider_mapping = fetch_inference_provider_mapping

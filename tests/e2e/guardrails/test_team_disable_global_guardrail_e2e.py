@@ -14,7 +14,6 @@ import pytest
 
 from e2e_config import unique_marker
 from e2e_http import UnknownApiError, unwrap
-from e2e_metadata import Domain, Mode, Provider, Subject, meta
 from guardrails_client import GuardrailsClient
 from lifecycle import ResourceManager
 
@@ -60,14 +59,6 @@ class TestTeamDisableGlobalGuardrail:
         "guardrail.litellm_content_filter.pre_call.blocks",
         exercised_on=["chat_completions"],
     )
-    @meta(
-        Subject(
-            domain=Domain.GUARDRAILS,
-            providers=(Provider.GEMINI,),
-            models=(MODEL,),
-            mode=Mode.NONSTREAM,
-        )
-    )
     def test_global_guardrail_blocks_key_without_team_opt_out(
         self, client: GuardrailsClient, resources: ResourceManager, scoped_key: str
     ) -> None:
@@ -80,14 +71,6 @@ class TestTeamDisableGlobalGuardrail:
     @pytest.mark.covers(
         "guardrail.litellm_content_filter.pre_call.allows",
         exercised_on=["chat_completions"],
-    )
-    @meta(
-        Subject(
-            domain=Domain.GUARDRAILS,
-            providers=(Provider.GEMINI,),
-            models=(MODEL,),
-            mode=Mode.NONSTREAM,
-        )
     )
     def test_team_with_disable_flag_bypasses_global_guardrail(
         self, client: GuardrailsClient, resources: ResourceManager

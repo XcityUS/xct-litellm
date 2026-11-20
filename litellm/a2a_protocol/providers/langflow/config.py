@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from typing import Any
 
 from litellm.a2a_protocol.litellm_completion_bridge.handler import (
     A2A_USER_API_KEY_HASH_PARAM,
@@ -15,10 +16,10 @@ class LangFlowA2AConfig(BaseA2AProviderConfig):
     async def handle_non_streaming(
         self,
         request_id: str,
-        params: dict[str, object],
+        params: dict[str, Any],
         api_base: str | None = None,
         **kwargs,
-    ) -> dict[str, object]:
+    ) -> dict[str, Any]:
         litellm_params = kwargs.get("litellm_params")
         if not litellm_params:
             raise ValueError(
@@ -38,10 +39,10 @@ class LangFlowA2AConfig(BaseA2AProviderConfig):
     async def handle_streaming(
         self,
         request_id: str,
-        params: dict[str, object],
+        params: dict[str, Any],
         api_base: str | None = None,
         **kwargs,
-    ) -> AsyncIterator[dict[str, object]]:
+    ) -> AsyncIterator[dict[str, Any]]:
         litellm_params = kwargs.get("litellm_params")
         if not litellm_params:
             raise ValueError(

@@ -25,13 +25,12 @@ from typing import (
     cast,  # noqa: TID251  # prisma table access is untyped (PrismaWrapper.__getattr__)
 )
 
-from pydantic import ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from litellm._logging import verbose_proxy_logger
 from litellm.litellm_core_utils.safe_json_dumps import safe_dumps
 from litellm.proxy.utils import PrismaClient, evict_config_param
 from litellm.repositories.config_repository import ConfigRepository
-from litellm.types.llms.base import LiteLLMBaseModel
 
 if TYPE_CHECKING:
     from prisma.models import LiteLLM_Config
@@ -81,7 +80,7 @@ class ReloadScheduleStatus(TypedDict):
     next_run: str | None
 
 
-class _IntervalConfig(LiteLLMBaseModel):
+class _IntervalConfig(BaseModel):
     model_config = ConfigDict(strict=True)
 
     interval_hours: int | None = None

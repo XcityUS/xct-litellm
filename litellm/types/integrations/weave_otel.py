@@ -3,10 +3,10 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal
 
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel
 
 
-class WeaveOtelConfig(LiteLLMBaseModel):
+class WeaveOtelConfig(BaseModel):
     """Configuration for Weave OpenTelemetry integration."""
 
     otlp_auth_headers: str | None = None

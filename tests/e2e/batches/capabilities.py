@@ -7,11 +7,7 @@ import os
 from dataclasses import dataclass
 from typing import Final, Literal
 
-import pytest
-
 from e2e_config import provider_edge_base, unique_marker
-from e2e_metadata import Domain, Mode, Route, Subject, meta
-from e2e_metadata import Provider as MetaProvider
 from models import LiteLLMParamsBody
 
 _BATCH_RUN = unique_marker()
@@ -21,10 +17,7 @@ def batch_model_name(base: str) -> str:
     return f"{base}-{_BATCH_RUN}"
 
 
-OPENAI_BATCH_BACKEND: Final = "gpt-6-luna"
-AZURE_BATCH_BACKEND: Final = "gpt-5.4-mini-batch"
-VERTEX_BATCH_BACKEND: Final = "gemini-2.5-flash"
-BEDROCK_BATCH_BACKEND: Final = "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0"
+OPENAI_BATCH_BACKEND: Final = "gpt-4o-mini"
 
 
 def openai_batch_params() -> LiteLLMParamsBody:
@@ -72,14 +65,14 @@ class Provider:
                 return openai_batch_params()
             case "azure":
                 return LiteLLMParamsBody(
-                    model=f"azure/{AZURE_BATCH_BACKEND}",
+                    model="azure/gpt-5.4-mini-batch",
                     api_base="os.environ/AZURE_API_BASE",
                     api_key="os.environ/AZURE_API_KEY",
                     api_version="2025-04-01-preview",
                 )
             case "vertex_ai":
                 return LiteLLMParamsBody(
-                    model=f"vertex_ai/{VERTEX_BATCH_BACKEND}",
+                    model="vertex_ai/gemini-2.5-flash",
                     vertex_project="os.environ/VERTEXAI_PROJECT",
                     vertex_location="us-central1",
                     vertex_credentials="os.environ/VERTEXAI_CREDENTIALS",
@@ -88,7 +81,7 @@ class Provider:
                 )
             case "bedrock":
                 return LiteLLMParamsBody(
-                    model=BEDROCK_BATCH_BACKEND,
+                    model="bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
                     aws_access_key_id="os.environ/AWS_ACCESS_KEY_ID",
                     aws_secret_access_key="os.environ/AWS_SECRET_ACCESS_KEY",
                     aws_region_name="os.environ/AWS_REGION",
@@ -139,21 +132,21 @@ PROVIDERS: tuple[Provider, ...] = (
     Provider(
         "azure",
         batch_model_name("azure-batch"),
-        AZURE_BATCH_BACKEND,
+        "gpt-5.4-mini-batch",
         can_cancel=True,
         can_list=True,
     ),
     Provider(
         "vertex_ai",
         batch_model_name("vertex-batch"),
-        VERTEX_BATCH_BACKEND,
+        "gemini-2.5-flash",
         can_cancel=True,
         can_list=True,
     ),
     Provider(
         "bedrock",
         batch_model_name("bedrock-batch"),
-        BEDROCK_BATCH_BACKEND,
+        "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0",
         can_cancel=True,
         can_list=True,
     ),
@@ -186,29 +179,6 @@ CAPABILITIES: tuple[Capability, ...] = tuple(
     for p in PROVIDERS
     for scenario in scenarios_for_provider(p)
 )
-
-
-def lifecycle_meta(cap: Capability) -> pytest.MarkDecorator:
-    return meta(
-        Subject(
-            domain=Domain.LLM_TRANSLATION,
-            route=Route.BATCHES,
-            providers=(MetaProvider(cap.provider),),
-            models=(cap.raw_model,),
-            mode=Mode.BATCH,
-        )
-    )
-
-
-def file_content_meta(provider: Provider) -> pytest.MarkDecorator:
-    return meta(
-        Subject(
-            domain=Domain.LLM_TRANSLATION,
-            route=Route.FILES,
-            providers=(MetaProvider(provider.name),),
-            models=(provider.raw_model,),
-        )
-    )
 
 
 def raw_id_matches_provider(provider: str, batch_id: str) -> bool:
@@ -250,13 +220,6 @@ def _b64_decode(value: str) -> str:
 
 def is_managed_id(id_str: str) -> bool:
     return _b64_decode(id_str).startswith("litellm_proxy")
-
-
-CLOUD_STORAGE_SCHEMES: Final = ("s3://", "gs://")
-
-
-def is_cloud_storage_id(id_str: str) -> bool:
-    return id_str.startswith(CLOUD_STORAGE_SCHEMES)
 
 
 def is_model_encoded_id(id_str: str) -> bool:

@@ -6,9 +6,9 @@
 # +-------------------------------------------------------------+
 
 import os
-from collections.abc import AsyncGenerator, AsyncIterable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterable
 from datetime import datetime
-from typing import Final
+from typing import Any, Final
 
 import httpx
 
@@ -86,7 +86,7 @@ class DynamoAIGuardrails(CustomGuardrail):
 
     async def _call_dynamoai_guardrails(
         self,
-        messages: list[dict[str, object]],
+        messages: list[dict[str, Any]],
         event_type: GuardrailEventHooks,
         text_type: str = "input",
         request_data: dict | None = None,
@@ -130,10 +130,9 @@ class DynamoAIGuardrails(CustomGuardrail):
                 url=self.api_url,
                 json=dict(payload),
                 headers=headers,
-                timeout=self.timeout,
             )
             response.raise_for_status()
-            response_json: Final[DynamoAIResponse] = response.json()
+            response_json: Final = response.json()
 
             end_time = datetime.now()
             duration = (end_time - start_time).total_seconds()
@@ -189,7 +188,7 @@ class DynamoAIGuardrails(CustomGuardrail):
         applied_policies: Final = response.get("appliedPolicies", [])
 
         violations_detected: Final[list[str]] = []
-        violation_details: Final[dict[str, Mapping[str, object]]] = {}
+        violation_details: Final[dict[str, object]] = {}
 
         # For now, only handle BLOCK action
         if final_action == "BLOCK":
@@ -405,7 +404,7 @@ class DynamoAIGuardrails(CustomGuardrail):
         # to avoid sending empty content to DynamoAI (e.g., during tool calls)
         if isinstance(response, litellm.ModelResponse):
             has_text_content = False
-            dynamoai_messages: Final[list[dict[str, object]]] = []
+            dynamoai_messages: Final[list[dict[str, str]]] = []
 
             for choice in response.choices:
                 if isinstance(choice, litellm.Choices):

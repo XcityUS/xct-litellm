@@ -21,10 +21,9 @@ from fastapi_sso.sso.base import DiscoveryDocument
 from fastapi_sso.sso.microsoft import MicrosoftSSO
 
 from litellm._logging import verbose_proxy_logger
-from litellm.proxy.management_endpoints.sso.litellm_http_client_sso import LiteLLMHttpClientSSO
 
 
-class CustomMicrosoftSSO(LiteLLMHttpClientSSO, MicrosoftSSO):
+class CustomMicrosoftSSO(MicrosoftSSO):
     """
     Microsoft SSO subclass that allows overriding default endpoints via environment variables.
 

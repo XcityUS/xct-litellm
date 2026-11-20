@@ -22,8 +22,6 @@ from typing import (
     cast,  # noqa: TID251  # prisma types the condition/pipeline Json columns as str, but reads return decoded values
 )
 
-from typing_extensions import ReadOnly
-
 from litellm._logging import verbose_proxy_logger
 from litellm.repositories.prisma_protocols import TableActions
 from litellm.repositories.table_repositories import PolicyRepository
@@ -162,15 +160,6 @@ def _row_to_policy_db_response(row: _PolicyRow) -> PolicyDBResponse:
     )
 
 
-class _AttributeView(TypedDict):
-    value: ReadOnly[object]
-
-
-def _attribute_of(source: object, name: str) -> object:
-    attribute: Final[_AttributeView] = {"value": getattr(source, name)}
-    return attribute["value"]
-
-
 class PolicyRegistry:
     """
     In-memory registry for storing and managing policies.
@@ -206,7 +195,7 @@ class PolicyRegistry:
 
         for policy_name, policy_data in policies_config.items():
             try:
-                policy = self.parse_policy(policy_name, policy_data)
+                policy = self._parse_policy(policy_name, policy_data)
                 self._policies[policy_name] = policy
                 verbose_proxy_logger.debug("Loaded policy: %s", policy_name)
             except Exception as e:
@@ -218,7 +207,7 @@ class PolicyRegistry:
         self._initialized = True
         verbose_proxy_logger.info("Loaded %s policies", len(self._policies))
 
-    def parse_policy(self, policy_name: str, policy_data: dict[str, Any]) -> Policy:
+    def _parse_policy(self, policy_name: str, policy_data: dict[str, Any]) -> Policy:
         """
         Parse a policy from raw configuration data.
 
@@ -256,8 +245,6 @@ class PolicyRegistry:
             condition=condition,
             pipeline=pipeline,
         )
-
-    _parse_policy = parse_policy
 
     @staticmethod
     def _parse_pipeline(
@@ -434,13 +421,13 @@ class PolicyRegistry:
             if policy_request.condition is not None:
                 data["condition"] = json.dumps(policy_request.condition.model_dump())
             if policy_request.pipeline is not None:
-                validated_pipeline: Final = GuardrailPipeline.model_validate(policy_request.pipeline)
+                validated_pipeline: Final = GuardrailPipeline(**policy_request.pipeline)
                 data["pipeline"] = json.dumps(validated_pipeline.model_dump())
 
             created_policy: Final = await _policy_table(prisma_client).create(data=data)
 
             # Also add to in-memory registry
-            policy: Final = self.parse_policy(
+            policy: Final = self._parse_policy(
                 policy_request.policy_name,
                 {
                     "inherit": policy_request.inherit,
@@ -509,7 +496,7 @@ class PolicyRegistry:
             if policy_request.condition is not None:
                 update_data["condition"] = json.dumps(policy_request.condition.model_dump())
             if policy_request.pipeline is not None:
-                validated_pipeline: Final = GuardrailPipeline.model_validate(policy_request.pipeline)
+                validated_pipeline: Final = GuardrailPipeline(**policy_request.pipeline)
                 update_data["pipeline"] = json.dumps(validated_pipeline.model_dump())
 
             updated_policy: Final = await _policy_table(prisma_client).update(
@@ -661,7 +648,7 @@ class PolicyRegistry:
         try:
             production: Final = await self.get_all_policies_from_db(prisma_client, version_status="production")
             db_policies: Final = {
-                policy_response.policy_name: self.parse_policy(
+                policy_response.policy_name: self._parse_policy(
                     policy_response.policy_name,
                     {
                         "inherit": policy_response.inherit,
@@ -692,7 +679,7 @@ class PolicyRegistry:
                 order={"created_at": "desc"},
             )
             for row in non_production:
-                policy = self.parse_policy(
+                policy = self._parse_policy(
                     row.policy_name,
                     {
                         "inherit": row.inherit,
@@ -744,7 +731,7 @@ class PolicyRegistry:
             # Build a temporary in-memory map for resolution
             temp_policies: Final = {}
             for policy_response in policies:
-                policy = self.parse_policy(
+                policy = self._parse_policy(
                     policy_response.policy_name,
                     {
                         "inherit": policy_response.inherit,
@@ -972,7 +959,7 @@ class PolicyRegistry:
 
             # Update in-memory registry: remove old production (by name), add this one
             self.remove_policy(policy_name)
-            policy: Final = self.parse_policy(
+            policy: Final = self._parse_policy(
                 policy_name,
                 {
                     "inherit": updated.inherit,
@@ -1031,8 +1018,8 @@ class PolicyRegistry:
             )
             field_diffs: Final[dict[str, dict[str, object]]] = {}
             for field in compare_fields:
-                val_a = _attribute_of(resp_a, field)
-                val_b = _attribute_of(resp_b, field)
+                val_a = getattr(resp_a, field)
+                val_b = getattr(resp_b, field)
                 if val_a != val_b:
                     field_diffs[field] = {"version_a": val_a, "version_b": val_b}
 

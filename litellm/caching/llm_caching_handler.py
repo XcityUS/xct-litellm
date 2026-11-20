@@ -2,9 +2,10 @@
 Add the event loop to the cache key, to prevent event loop closed errors.
 """
 
+import asyncio
 from typing import Final
 
-from .evicted_client_closer import EvictedClientCloser, default_evicted_client_closer, running_loop_token
+from .evicted_client_closer import EvictedClientCloser, default_evicted_client_closer
 from .in_memory_cache import InMemoryCache
 
 
@@ -42,22 +43,24 @@ class LLMClientCache(InMemoryCache):
         self.evicted_client_closer.schedule(evicted)
         self.evicted_client_closer.reap()
 
-    def update_cache_key_with_event_loop(self, key: str) -> str:
+    def update_cache_key_with_event_loop(self, key):
         """
         Add the event loop to the cache key, to prevent event loop closed errors.
         If none, use the key as is.
         """
-        token: Final = running_loop_token()
-        return f"{key}-{token}" if token is not None else key
+        try:
+            event_loop: Final = asyncio.get_running_loop()
+            stringified_event_loop: Final = str(id(event_loop))
+            return f"{key}-{stringified_event_loop}"
+        except RuntimeError:  # handle no current running event loop
+            return key
 
-    def _scoped_key(self, key: str, loop_bound: bool) -> str:
-        return self.update_cache_key_with_event_loop(key) if loop_bound else key
-
-    def set_cache(self, key: str, value: object, litellm_owned_client: bool = False, loop_bound: bool = True, **kwargs):
+    def set_cache(self, key: str, value: object, litellm_owned_client: bool = False, **kwargs):
         """``litellm_owned_client`` marks a client litellm built, so it may be closed once evicted."""
         if litellm_owned_client:
             self.evicted_client_closer.mark_owned(value)
-        return super().set_cache(self._scoped_key(key, loop_bound), value, **kwargs)
+        key = self.update_cache_key_with_event_loop(key)
+        return super().set_cache(key, value, **kwargs)
 
     async def async_set_cache(self, key: str, value: object, litellm_owned_client: bool = False, **kwargs):
         if litellm_owned_client:
@@ -65,13 +68,13 @@ class LLMClientCache(InMemoryCache):
         key = self.update_cache_key_with_event_loop(key)
         return await super().async_set_cache(key, value, **kwargs)
 
-    def get_cache(self, key: str, loop_bound: bool = True, **kwargs):
-        scoped_key: Final = self._scoped_key(key, loop_bound)
+    def get_cache(self, key, **kwargs):
+        key = self.update_cache_key_with_event_loop(key)
         self.evicted_client_closer.reap()
 
-        return super().get_cache(scoped_key, **kwargs)
+        return super().get_cache(key, **kwargs)
 
-    async def async_get_cache(self, key: str, **kwargs):
+    async def async_get_cache(self, key, **kwargs):
         key = self.update_cache_key_with_event_loop(key)
 
         return await super().async_get_cache(key, **kwargs)

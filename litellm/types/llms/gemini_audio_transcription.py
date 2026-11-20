@@ -1,9 +1,7 @@
 from typing import Literal
 
-from pydantic import ConfigDict
+from pydantic import BaseModel, ConfigDict
 from typing_extensions import ReadOnly, Required, TypedDict
-
-from litellm.types.llms.base import LiteLLMBaseModel
 
 
 class GeminiTranscriptionAudioInput(TypedDict):
@@ -33,7 +31,7 @@ class GeminiTranscriptionInteractionRequest(TypedDict, total=False):
     generation_config: ReadOnly[GeminiTranscriptionGenerationConfig]
 
 
-class GeminiTranscriptionWordAnnotation(LiteLLMBaseModel):
+class GeminiTranscriptionWordAnnotation(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     type: str | None = None
@@ -43,7 +41,7 @@ class GeminiTranscriptionWordAnnotation(LiteLLMBaseModel):
     end_offset: str | None = None
 
 
-class GeminiTranscriptionContent(LiteLLMBaseModel):
+class GeminiTranscriptionContent(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     type: str | None = None
@@ -51,21 +49,21 @@ class GeminiTranscriptionContent(LiteLLMBaseModel):
     annotations: tuple[GeminiTranscriptionWordAnnotation, ...] = ()
 
 
-class GeminiTranscriptionStep(LiteLLMBaseModel):
+class GeminiTranscriptionStep(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     type: str | None = None
     content: tuple[GeminiTranscriptionContent, ...] = ()
 
 
-class GeminiTranscriptionModalityTokens(LiteLLMBaseModel):
+class GeminiTranscriptionModalityTokens(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     modality: str | None = None
     tokens: int = 0
 
 
-class GeminiTranscriptionUsage(LiteLLMBaseModel):
+class GeminiTranscriptionUsage(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     total_tokens: int = 0
@@ -74,8 +72,8 @@ class GeminiTranscriptionUsage(LiteLLMBaseModel):
     input_tokens_by_modality: tuple[GeminiTranscriptionModalityTokens, ...] = ()
 
 
-class GeminiTranscriptionInteractionResponse(LiteLLMBaseModel):
-    model_config = ConfigDict(extra="ignore", hide_input_in_errors=True)
+class GeminiTranscriptionInteractionResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
 
     id: str | None = None
     status: str | None = None

@@ -20,7 +20,7 @@ from litellm.types.utils import EmbeddingResponse
 from .v1_transformation import CohereEmbeddingConfig
 
 if TYPE_CHECKING:
-    from litellm.litellm_core_utils.tokenizer import Encoding as Tokenizer
+    import tiktoken
 
 
 def validate_environment(api_key, headers: dict):
@@ -60,7 +60,7 @@ async def async_embedding(
     api_base: str,
     api_key: str | None,
     headers: dict,
-    encoding: "Tokenizer | None",
+    encoding: "tiktoken.Encoding | None",
     client: AsyncHTTPHandler | None = None,
 ):
     ## LOGGING
@@ -82,7 +82,7 @@ async def async_embedding(
         )
 
     try:
-        response: Final = await client.post(api_base, headers=headers, data=json.dumps(data), timeout=timeout)
+        response: Final = await client.post(api_base, headers=headers, data=json.dumps(data))
     except httpx.HTTPStatusError as e:
         ## LOGGING
         logging_obj.post_call(
@@ -103,7 +103,7 @@ async def async_embedding(
         raise e
 
     ## PROCESS RESPONSE ##
-    return CohereEmbeddingConfig().transform_response(
+    return CohereEmbeddingConfig()._transform_response(
         response=response,
         api_key=api_key,
         logging_obj=logging_obj,
@@ -122,7 +122,7 @@ def embedding(
     logging_obj: LiteLLMLoggingObj,
     optional_params: dict,
     headers: dict,
-    encoding: "Tokenizer | None",
+    encoding: "tiktoken.Encoding | None",
     data: dict | CohereEmbeddingRequest | None = None,
     complete_api_base: str | None = None,
     api_key: str | None = None,
@@ -166,9 +166,9 @@ def embedding(
     if client is None or not isinstance(client, HTTPHandler):
         client = HTTPHandler(concurrent_limit=1)
 
-    response: Final = client.post(embed_url, headers=headers, data=json.dumps(data), timeout=timeout)
+    response: Final = client.post(embed_url, headers=headers, data=json.dumps(data))
 
-    return CohereEmbeddingConfig().transform_response(
+    return CohereEmbeddingConfig()._transform_response(
         response=response,
         api_key=api_key,
         logging_obj=logging_obj,

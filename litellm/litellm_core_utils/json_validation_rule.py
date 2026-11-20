@@ -1,13 +1,7 @@
 import json
-from collections.abc import Mapping
-from typing import Final
-
-from pydantic import TypeAdapter
+from typing import Any, Final
 
 from litellm.constants import DEFAULT_MAX_RECURSE_DEPTH
-from litellm.litellm_core_utils.llm_cost_calc.guardrail_cost import is_str_keyed_dict
-
-_DECODED_RESPONSE: Final = TypeAdapter(object)
 
 
 def normalize_json_schema_types(
@@ -78,7 +72,7 @@ def normalize_json_schema_types(
     return schema
 
 
-def normalize_tool_schema(tool: Mapping[str, object]) -> Mapping[str, object]:
+def normalize_tool_schema(tool: dict[str, Any]) -> dict[str, Any]:
     """
     Normalize a tool's parameter schema to use standard JSON Schema lowercase types.
 
@@ -94,14 +88,10 @@ def normalize_tool_schema(tool: Mapping[str, object]) -> Mapping[str, object]:
     normalized_tool: Final = tool.copy()
 
     # Normalize function parameters if present
-    if "function" not in tool:
-        return normalized_tool
-    function: Final = tool["function"]
-    if is_str_keyed_dict(function):
-        normalized_function: Final = function.copy()
-        normalized_tool["function"] = normalized_function
-        if "parameters" in function:
-            normalized_function["parameters"] = normalize_json_schema_types(function["parameters"])
+    if "function" in tool and isinstance(tool["function"], dict):
+        normalized_tool["function"] = tool["function"].copy()
+        if "parameters" in tool["function"]:
+            normalized_tool["function"]["parameters"] = normalize_json_schema_types(tool["function"]["parameters"])
 
     return normalized_tool
 
@@ -119,7 +109,7 @@ def validate_schema(schema: dict, response: str):
     from litellm import JSONSchemaValidationError
 
     try:
-        response_dict: Final = _DECODED_RESPONSE.validate_python(json.loads(response))
+        response_dict: Final = json.loads(response)
     except json.JSONDecodeError:
         raise JSONSchemaValidationError(model="", llm_provider="", raw_response=response, schema=json.dumps(schema))
 

@@ -1,33 +1,11 @@
 import json as json_lib
-from typing import Final, Protocol
+from typing import Final
 
 import click
 import requests
 import rich
-from pydantic import TypeAdapter
-from typing_extensions import ReadOnly, TypedDict
 
 from ...http_client import HTTPClient
-
-_DECODED_JSON: Final = TypeAdapter(object)
-
-
-class _CliContext(TypedDict):
-    base_url: ReadOnly[str]
-    api_key: ReadOnly[str | None]
-
-
-class _CliContextView(Protocol):
-    @property
-    def obj(self) -> _CliContext: ...
-
-
-class _JsonBodyView(TypedDict):
-    body: ReadOnly[object]
-
-
-def _cli_context(view: _CliContextView) -> _CliContext:
-    return view.obj
 
 
 @click.group()
@@ -88,7 +66,7 @@ def request(
     json_data = None
     if json:
         try:
-            json_data = _DECODED_JSON.validate_python(json_lib.loads(json))
+            json_data = json_lib.loads(json)
         except ValueError as e:
             raise click.BadParameter(f"Invalid JSON format: {e}")
 
@@ -101,23 +79,21 @@ def request(
             # If not JSON, use as raw data
             request_data = data
 
-    client: Final = HTTPClient(_cli_context(ctx)["base_url"], _cli_context(ctx)["api_key"])
+    client: Final = HTTPClient(ctx.obj["base_url"], ctx.obj["api_key"])
     try:
-        response: Final[_JsonBodyView] = {
-            "body": client.request(
-                method=method,
-                uri=uri,
-                data=request_data,
-                json=json_data,
-                headers=headers,
-            )
-        }
-        rich.print_json(data=response["body"])
+        response: Final = client.request(
+            method=method,
+            uri=uri,
+            data=request_data,
+            json=json_data,
+            headers=headers,
+        )
+        rich.print_json(data=response)
     except requests.exceptions.HTTPError as e:
         click.echo(f"Error: HTTP {e.response.status_code}", err=True)
         try:
-            error_body: Final[_JsonBodyView] = {"body": e.response.json()}
-            rich.print_json(data=error_body["body"])
+            error_body: Final = e.response.json()
+            rich.print_json(data=error_body)
         except json_lib.JSONDecodeError:
             click.echo(e.response.text, err=True)
         raise click.Abort()

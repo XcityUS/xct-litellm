@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, TypeAlias
 
-from pydantic import ConfigDict
+from pydantic import BaseModel, ConfigDict
 
 from litellm.llms.litellm_proxy.skills.constants import MAX_SKILLS_PER_SEARCH
 from litellm.llms.litellm_proxy.skills.handler import LiteLLMSkillsHandler
@@ -16,14 +16,12 @@ from litellm.proxy.common_utils.semantic_text_index import (
     SemanticTextIndex,
     router_embedder,
 )
-from litellm.types.llms.base import LiteLLMBaseModel
 from litellm.types.utils import LlmProviders
 
 if TYPE_CHECKING:
-    from litellm.models.skills import LiteLLM_SkillsTable
+    from litellm.proxy._types import LiteLLM_SkillsTable, UserAPIKeyAuth
     from litellm.proxy.utils import ProxyLogging
     from litellm.router import Router
-    from litellm.types.proxy.auth.user_api_key_auth import UserAPIKeyAuth
 
 DEFAULT_SKILL_SEARCH_TOP_K: Final = 5
 MAX_SKILL_SEARCH_TOP_K: Final = 100
@@ -65,7 +63,7 @@ SkillSearchOutcome: TypeAlias = SkillSearchHits | SkillSearchNotConfigured | Ski
 HostedSkillSearchOutcome: TypeAlias = SkillSearchOutcome | SkillSearchUnsupportedProvider
 
 
-class SkillSearchResult(LiteLLMBaseModel):
+class SkillSearchResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     skill_id: str
@@ -107,11 +105,7 @@ class SkillSearchIndex:
         if isinstance(scores, EmbeddingFailed):
             return SkillSearchEmbeddingFailed(reason=scores.reason)
         ranked: Final = sorted(
-            (
-                SkillSearchHit(skill=skill, score=score)
-                for skill, score in zip(skills, scores, strict=True)
-                if score is not None
-            ),
+            (SkillSearchHit(skill=skill, score=score) for skill, score in zip(skills, scores, strict=True)),
             key=lambda hit: hit.score,
             reverse=True,
         )
@@ -131,7 +125,7 @@ async def search_skills(
     user_api_key_dict: UserAPIKeyAuth,
     proxy_logging_obj: ProxyLogging,
 ) -> SkillSearchOutcome:
-    if embedding_model is None or not embedding_model.strip():
+    if embedding_model is None:
         return SkillSearchNotConfigured(
             reason="skill search needs litellm_settings.skill_search_embedding_model set to an embedding model from model_list"
         )

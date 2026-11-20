@@ -8,16 +8,12 @@ API Documentation: https://developers.sber.ru/docs/ru/gigachat/api/reference/res
 from __future__ import annotations
 
 import types
-from collections.abc import Mapping
-from typing import Final, Protocol, runtime_checkable
+from typing import Final
 
 import httpx
-from pydantic import ConfigDict, TypeAdapter
 
 from litellm import LlmProviders
-from litellm.litellm_core_utils.core_helpers import iter_items, json_contains, subscript
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
-from litellm.litellm_core_utils.url_utils import join_api_base
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.llms.base_llm.embedding.transformation import BaseEmbeddingConfig
 from litellm.llms.gigachat.utils import get_api_base
@@ -25,30 +21,6 @@ from litellm.types.llms.openai import AllEmbeddingInputValues, AllMessageValues
 from litellm.types.utils import EmbeddingResponse
 
 from ..authenticator import get_access_token
-
-_JSON_OBJECT: Final = TypeAdapter(Mapping[str, object], config=ConfigDict(hide_input_in_errors=True))
-_DECODED_JSON: Final = TypeAdapter(object)
-
-
-@runtime_checkable
-class _SupportsDelItem(Protocol):
-    def __delitem__(self, key: str, /) -> None: ...
-
-
-@runtime_checkable
-class _SupportsSetItem(Protocol):
-    def __setitem__(self, key: str, value: object, /) -> None: ...
-
-
-def _add_prompt_tokens(total_tokens: float, embedding: object) -> float:
-    if not (json_contains(embedding, "usage") and json_contains(subscript(embedding, "usage"), "prompt_tokens")):
-        return total_tokens
-    prompt_tokens: Final = subscript(subscript(embedding, "usage"), "prompt_tokens")
-    if isinstance(prompt_tokens, int | float):
-        return total_tokens + prompt_tokens
-    raise TypeError(
-        f"unsupported operand type(s) for +=: '{type(total_tokens).__name__}' and '{type(prompt_tokens).__name__}'"
-    )
 
 
 class GigaChatEmbeddingError(BaseLLMException):
@@ -67,10 +39,9 @@ class GigaChatEmbeddingConfig(BaseEmbeddingConfig):
 
     @classmethod
     def get_config(cls):
-        class_attributes: Final[Mapping[str, object]] = types.MappingProxyType(cls.__dict__)
         return {
             k: v
-            for k, v in class_attributes.items()
+            for k, v in cls.__dict__.items()
             if not k.startswith("__")
             and not isinstance(
                 v,
@@ -122,7 +93,8 @@ class GigaChatEmbeddingConfig(BaseEmbeddingConfig):
         stream: bool | None = None,
     ) -> str:
         """Get the complete URL for embeddings endpoint."""
-        return join_api_base(get_api_base(api_base), "embeddings")
+        base: Final = get_api_base(api_base)
+        return f"{base}/embeddings"
 
     def transform_embedding_request(
         self,
@@ -140,7 +112,7 @@ class GigaChatEmbeddingConfig(BaseEmbeddingConfig):
             "input": ["text1", "text2", ...]
         }
         """
-        normalized_input: Final = [input] if isinstance(input, str) else input
+        normalized_input: Final = [input] if isinstance(input, str) else input  # mutable-ok: preserve list API
         return {
             "model": model.removeprefix("gigachat/"),
             "input": normalized_input,
@@ -167,7 +139,7 @@ class GigaChatEmbeddingConfig(BaseEmbeddingConfig):
             "model": "Embeddings"
         }
         """
-        response_json: Final = _DECODED_JSON.validate_python(raw_response.json())
+        response_json: Final = raw_response.json()
 
         # Log response
         logging_obj.post_call(
@@ -178,25 +150,22 @@ class GigaChatEmbeddingConfig(BaseEmbeddingConfig):
         )
 
         # Calculate total tokens from individual embeddings
-        total_tokens: float = 0
-        if json_contains(response_json, "data"):
-            for emb in iter_items(subscript(response_json, "data")):
-                total_tokens = _add_prompt_tokens(total_tokens, emb)
+        total_tokens = 0
+        if "data" in response_json:
+            for emb in response_json["data"]:
+                if "usage" in emb and "prompt_tokens" in emb["usage"]:
+                    total_tokens += emb["usage"]["prompt_tokens"]
                 # Remove usage from individual embeddings (not part of OpenAI format)
-                if json_contains(emb, "usage"):
-                    if not isinstance(emb, _SupportsDelItem):
-                        raise TypeError(f"'{type(emb).__name__}' object does not support item deletion")
+                if "usage" in emb:
                     del emb["usage"]
 
         # Set overall usage
-        if not isinstance(response_json, _SupportsSetItem):
-            raise TypeError(f"'{type(response_json).__name__}' object does not support item assignment")
         response_json["usage"] = {
             "prompt_tokens": total_tokens,
             "total_tokens": total_tokens,
         }
 
-        return EmbeddingResponse.model_validate(_JSON_OBJECT.validate_python(response_json))
+        return EmbeddingResponse(**response_json)
 
     def validate_environment(
         self,

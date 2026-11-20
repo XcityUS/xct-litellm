@@ -5,8 +5,8 @@ from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Annotated, Final, Literal, NamedTuple, Optional, cast
 
 from fastapi import HTTPException
-from pydantic import ConfigDict, Field, TypeAdapter, ValidationError
-from typing_extensions import override
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from typing_extensions import Any, override
 
 from litellm._logging import verbose_proxy_logger
 from litellm.integrations.custom_guardrail import (
@@ -26,7 +26,6 @@ from litellm.proxy.common_utils.callback_utils import (
     add_guardrail_to_applied_guardrails_header,
 )
 from litellm.types.guardrails import GuardrailEventHooks, LitellmParams
-from litellm.types.llms.base import LiteLLMBaseModel
 from litellm.types.llms.openai import AllMessageValues, OpenAIChatCompletionToolParam
 from litellm.types.proxy.guardrails.guardrail_hooks.crowdstrike_aidr import (
     CrowdStrikeAIDRGuardrailConfigModelOptionalParams,
@@ -37,25 +36,23 @@ if TYPE_CHECKING:
     from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
     from litellm.types.proxy.guardrails.guardrail_hooks.base import GuardrailConfigModel
 
-_DECODED_JSON: Final = TypeAdapter(object)
-
 
 class CrowdStrikeAIDRGuardrailMissingSecrets(Exception):
     """Custom exception for missing CrowdStrike AIDR secrets."""
 
 
-class _TextContentPart(LiteLLMBaseModel):
+class _TextContentPart(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["text"] = "text"
     text: str
 
 
-class _ImageUrl(LiteLLMBaseModel):
+class _ImageUrl(BaseModel):
     url: str
 
 
-class _ImageUrlContentPart(LiteLLMBaseModel):
+class _ImageUrlContentPart(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["image_url"] = "image_url"
@@ -65,28 +62,28 @@ class _ImageUrlContentPart(LiteLLMBaseModel):
 _ContentPart = Annotated[_TextContentPart | _ImageUrlContentPart, Field(discriminator="type")]
 
 
-class _Message(LiteLLMBaseModel):
+class _Message(BaseModel):
     role: str
     content: str | list[_ContentPart] | None = None
 
 
-class _GuardInput(LiteLLMBaseModel):
+class _GuardInput(BaseModel):
     messages: list[_Message]
     tools: Sequence[OpenAIChatCompletionToolParam] | None = None
 
 
-class _GuardChatCompletionsResult(LiteLLMBaseModel):
+class _GuardChatCompletionsResult(BaseModel):
     guard_output: _GuardInput | None = None
     """Updated structured prompt."""
     blocked: bool | None = None
     """Whether or not the prompt triggered a block detection."""
     transformed: bool | None = None
     """Whether or not the original input was transformed."""
-    detectors: dict[str, object] | None = None
+    detectors: dict[str, Any] | None = None
     """Result of the policy analyzing and input prompt."""
 
 
-class _GuardChatCompletionsResponse(LiteLLMBaseModel):
+class _GuardChatCompletionsResponse(BaseModel):
     result: _GuardChatCompletionsResult | None = None
 
 
@@ -150,8 +147,8 @@ def _extract_text_from_message(message: _Message) -> str:
     return "\n".join(part.text for part in content if isinstance(part, _TextContentPart))
 
 
-def _merge_metadata_bags(request_data: Mapping[str, object]) -> Mapping[str, object] | None:
-    merged: Final[dict[str, object]] = {}
+def _merge_metadata_bags(request_data: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    merged: Final[dict[str, Any]] = {}
     present = False
     for bag in (request_data.get("metadata"), request_data.get("litellm_metadata")):
         if isinstance(bag, Mapping):
@@ -328,7 +325,7 @@ class CrowdStrikeAIDRHandler(CustomGuardrail):
         self._set_streaming_params(streaming_params_from_litellm_params(litellm_params))
 
     async def _call_crowdstrike_aidr_guard(
-        self, payload: dict[str, object], hook_name: str
+        self, payload: dict[str, Any], hook_name: str
     ) -> _GuardChatCompletionsResult:
         """
         Makes the API call to the CrowdStrike AIDR AI Guard endpoint.
@@ -358,13 +355,11 @@ class CrowdStrikeAIDRHandler(CustomGuardrail):
             "CrowdStrike AIDR Guardrail (%s): Calling endpoint %s with payload: %s", hook_name, endpoint, payload
         )
 
-        response: Final = await self.async_handler.post(
-            url=endpoint, json=payload, headers=headers, timeout=self.timeout
-        )
+        response: Final = await self.async_handler.post(url=endpoint, json=payload, headers=headers)
         assert response is not None
         response.raise_for_status()
 
-        response_body: Final = _DECODED_JSON.validate_python(response.json())
+        response_body: Final[object] = response.json()
         raw_result: Final[object] = response_body.get("result") if isinstance(response_body, dict) else None
         blocked_signal: Final[object] = raw_result.get("blocked") if isinstance(raw_result, dict) else None
 
@@ -389,7 +384,7 @@ class CrowdStrikeAIDRHandler(CustomGuardrail):
             if transformed_signal:
                 raise HTTPException(
                     status_code=500,
-                    detail={
+                    detail={  # mutable-ok: one-shot HTTPException detail payload, never mutated after construction
                         "error": "CrowdStrike AIDR returned a transformed response litellm could not parse; "
                         "failing closed instead of dropping the delivered redactions",
                         "guardrail_name": self.guardrail_name,
@@ -440,7 +435,7 @@ class CrowdStrikeAIDRHandler(CustomGuardrail):
         return [_extract_text_from_message(msg) for msg in tail]
 
     async def _call_or_fail_open(
-        self, payload: dict[str, object], hook_name: str, request_data: dict[str, object]
+        self, payload: dict[str, Any], hook_name: str, request_data: dict[str, object]
     ) -> _GuardChatCompletionsResult:
         start_time: Final = time.time()
         try:
@@ -470,10 +465,6 @@ class CrowdStrikeAIDRHandler(CustomGuardrail):
     @override
     def structured_messages_cover_full_request(self) -> bool:
         return effective_skip_system_message_for_guardrail(self) or effective_skip_tool_message_for_guardrail(self)
-
-    @override
-    def supports_structured_messages(self) -> bool:
-        return False
 
     def _writeback_messages(
         self,
@@ -527,7 +518,7 @@ class CrowdStrikeAIDRHandler(CustomGuardrail):
             event_type = "output"
             hook_name = "apply_guardrail (response)"
 
-        ai_guard_payload: Final[dict[str, object]] = {
+        ai_guard_payload: Final[dict[str, Any]] = {
             "guard_input": guard_input.model_dump(mode="json"),
             "event_type": event_type,
         }
@@ -542,7 +533,7 @@ class CrowdStrikeAIDRHandler(CustomGuardrail):
             if user_id:
                 ai_guard_payload["user_id"] = user_id
 
-            extra_info: Final[dict[str, object]] = {}
+            extra_info: Final[dict[str, str]] = {}
             user_email: Final = metadata.get("user_api_key_user_email")
             if user_email:
                 extra_info["user_name"] = user_email

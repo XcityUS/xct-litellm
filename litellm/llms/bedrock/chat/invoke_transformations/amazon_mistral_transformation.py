@@ -1,5 +1,4 @@
 import types
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Final
 
 from litellm.llms.base_llm.chat.transformation import BaseConfig
@@ -38,7 +37,7 @@ class AmazonMistralConfig(AmazonInvokeConfig, BaseConfig):
         top_k: float | None = None,
         stop: list[str] | None = None,
     ) -> None:
-        locals_: Final[Mapping[str, object]] = dict(locals())
+        locals_: Final = locals().copy()
         for key, value in locals_.items():
             if key != "self" and value is not None:
                 setattr(self.__class__, key, value)
@@ -47,10 +46,9 @@ class AmazonMistralConfig(AmazonInvokeConfig, BaseConfig):
 
     @classmethod
     def get_config(cls):
-        class_attributes: Final[Mapping[str, object]] = types.MappingProxyType(cls.__dict__)
         return {
             k: v
-            for k, v in class_attributes.items()
+            for k, v in cls.__dict__.items()
             if not k.startswith("__")
             and not k.startswith("_abc")
             and not isinstance(

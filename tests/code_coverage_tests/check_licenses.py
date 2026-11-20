@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import configparser
-from collections.abc import Collection, Iterable, Iterator
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -87,7 +86,7 @@ class LicenseChecker:
         self.authorized_packages = self._parse_authorized_packages()
 
         # Initialize cache
-        self.cache_file = Path(__file__).with_name("dependency_license_cache.json")
+        self.cache_file = Path("license_cache.json")
         self.license_cache: Dict[str, str] = {}
         if self.cache_file.exists():
             with open(self.cache_file) as f:
@@ -340,20 +339,6 @@ class LicenseChecker:
 
         return is_acceptable
 
-    def _direct_group_requirements(
-        self, entries: Iterable[object], group_names: Collection[str]
-    ) -> Iterator[str]:
-        for entry in entries:
-            match entry:
-                case str():
-                    yield entry
-                case {"include-group": str(name)} if (
-                    len(entry) == 1 and self._normalize_package_name(name) in group_names
-                ):
-                    continue
-                case _:
-                    raise ValueError(f"Invalid dependency group entry: {entry!r}")
-
     def _load_requirements(
         self, requirements_file: Optional[Path] = None
     ) -> List[Requirement]:
@@ -373,14 +358,8 @@ class LicenseChecker:
                     pyproject["project"].get("optional-dependencies", {}).values()
                 ):
                     requirement_lines.extend(extra_reqs)
-                groups: Final = pyproject.get("dependency-groups", {})
-                group_names: Final = frozenset(
-                    self._normalize_package_name(name) for name in groups
-                )
-                for group_reqs in groups.values():
-                    requirement_lines.extend(
-                        self._direct_group_requirements(group_reqs, group_names)
-                    )
+                for group_reqs in pyproject.get("dependency-groups", {}).values():
+                    requirement_lines.extend(group_reqs)
 
                 lock_versions: Dict[str, List[str]] = {}
                 for package in lock_data.get("package", []):
@@ -407,10 +386,9 @@ class LicenseChecker:
                 requirement_lines = list(dict.fromkeys(requirement_lines))
 
             return [
-                Requirement(requirement)
+                Requirement(line.split("#")[0].strip())
                 for line in requirement_lines
-                if (requirement := re.split(r"\s+#", line, maxsplit=1)[0].strip())
-                and not requirement.startswith("#")
+                if line.split("#")[0].strip() and not line.startswith("#")
             ]
         except Exception as e:
             source = requirements_file or "pyproject.toml + uv.lock"
@@ -468,9 +446,6 @@ def main():
 
     # Check requirements
     if not checker.check_requirements(req_file):
-        if not checker.package_results:
-            sys.exit(1)
-
         # Get lists of problematic packages
         unverified = [p for p in checker.package_results if not p.license_type]
         invalid = [

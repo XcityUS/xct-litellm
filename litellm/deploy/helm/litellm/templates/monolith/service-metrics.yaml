@@ -1,3 +1,0 @@
-{{- if and .Values.monolith.enabled .Values.gateway.metricsServer.enabled }}
-{{- include "litellm.workload.serviceMetrics" . }}
-{{- end }}

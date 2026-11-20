@@ -23,8 +23,6 @@ from litellm.proxy._types import (
 from litellm.proxy.management_helpers.audit_logs import (
     create_audit_log_for_update,
     is_audit_logging_enabled,
-    track_audit_task,
-    with_audit_actor,
 )
 from litellm.repositories.user_repository import UserRepository
 
@@ -43,18 +41,7 @@ class UserManagementEventHooks:
         - Creating an audit log for the user creation
         - Sending a user invitation email to the user
         """
-        from litellm.proxy.proxy_server import litellm_proxy_admin_name
-
-        if is_audit_logging_enabled():
-            track_audit_task(
-                asyncio.create_task(
-                    UserManagementEventHooks._create_user_created_audit_log(
-                        response=response,
-                        user_api_key_dict=user_api_key_dict,
-                        litellm_proxy_admin_name=litellm_proxy_admin_name,
-                    )
-                )
-            )
+        from litellm.proxy.proxy_server import litellm_proxy_admin_name, prisma_client
 
         #########################################################
         ########## Send User Invitation Email ################
@@ -65,14 +52,9 @@ class UserManagementEventHooks:
             user_api_key_dict=user_api_key_dict,
         )
 
-    @staticmethod
-    async def _create_user_created_audit_log(
-        response: NewUserResponse,
-        user_api_key_dict: UserAPIKeyAuth,
-        litellm_proxy_admin_name: str | None,
-    ) -> None:
-        from litellm.proxy.proxy_server import prisma_client
-
+        #########################################################
+        ########## CREATE AUDIT LOG ################
+        #########################################################
         try:
             if prisma_client is None:
                 raise Exception(CommonProxyErrors.db_not_connected_error.value)
@@ -81,14 +63,16 @@ class UserManagementEventHooks:
             user_row: Final = await UserRepository(prisma_client).find_by_id(response.user_id)
             if user_row is None:
                 raise Exception(f"no user row found for user_id={response.user_id}")
-            await UserManagementEventHooks.create_internal_user_audit_log(
-                user_id=user_row.user_id,
-                action="created",
-                litellm_changed_by=user_api_key_dict.user_id,
-                user_api_key_dict=user_api_key_dict,
-                litellm_proxy_admin_name=litellm_proxy_admin_name,
-                before_value=None,
-                after_value=user_row.model_dump_json(exclude_none=True),
+            asyncio.create_task(
+                UserManagementEventHooks.create_internal_user_audit_log(
+                    user_id=user_row.user_id,
+                    action="created",
+                    litellm_changed_by=user_api_key_dict.user_id,
+                    user_api_key_dict=user_api_key_dict,
+                    litellm_proxy_admin_name=litellm_proxy_admin_name,
+                    before_value=None,
+                    after_value=user_row.model_dump_json(exclude_none=True),
+                )
             )
         except Exception as e:
             verbose_proxy_logger.warning("Unable to create audit log for user on `/user/new` - %s", e)
@@ -230,22 +214,19 @@ class UserManagementEventHooks:
         )
 
         await create_audit_log_for_update(
-            request_data=with_audit_actor(
-                LiteLLM_AuditLogs(
-                    id=str(uuid.uuid4()),
-                    updated_at=datetime.now(timezone.utc),
-                    changed_by=get_audit_log_changed_by(
-                        litellm_changed_by=litellm_changed_by,
-                        user_api_key_dict=user_api_key_dict,
-                        litellm_proxy_admin_name=litellm_proxy_admin_name,
-                    ),
-                    changed_by_api_key=user_api_key_dict.api_key,
-                    table_name=LitellmTableNames.USER_TABLE_NAME,
-                    object_id=user_id,
-                    action=action,
-                    updated_values=after_value,
-                    before_value=before_value,
+            request_data=LiteLLM_AuditLogs(
+                id=str(uuid.uuid4()),
+                updated_at=datetime.now(timezone.utc),
+                changed_by=get_audit_log_changed_by(
+                    litellm_changed_by=litellm_changed_by,
+                    user_api_key_dict=user_api_key_dict,
+                    litellm_proxy_admin_name=litellm_proxy_admin_name,
                 ),
-                user_api_key_dict,
+                changed_by_api_key=user_api_key_dict.api_key,
+                table_name=LitellmTableNames.USER_TABLE_NAME,
+                object_id=user_id,
+                action=action,
+                updated_values=after_value,
+                before_value=before_value,
             )
         )

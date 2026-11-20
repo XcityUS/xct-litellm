@@ -1,9 +1,7 @@
-from pydantic import Field
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, Field
 
 
-class AzureContentSafetyConfigModel(LiteLLMBaseModel):
+class AzureContentSafetyConfigModel(BaseModel):
     """Configuration parameters for the Azure Content Safety Prompt Shield guardrail"""
 
     api_key: str | None = Field(

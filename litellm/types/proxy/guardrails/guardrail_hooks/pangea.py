@@ -1,11 +1,9 @@
-from pydantic import Field
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, Field
 
 from .base import GuardrailConfigModel
 
 
-class PangeaGuardrailConfigModelOptionalParams(LiteLLMBaseModel):
+class PangeaGuardrailConfigModelOptionalParams(BaseModel):
     pangea_input_recipe: str | None = Field(
         default=None,
         description="The Pangea input recipe for the Pangea guardrail. Used for pre-call hook.",

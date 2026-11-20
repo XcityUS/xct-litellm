@@ -5,10 +5,9 @@ Attachments define WHERE policies apply, separate from the policy definitions.
 This allows the same policy to be attached to multiple scopes.
 """
 
-from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, TypedDict
+from typing import TYPE_CHECKING, Any, Final, TypedDict
 
 from litellm._logging import verbose_proxy_logger
 from litellm.repositories.table_repositories import PolicyAttachmentRepository
@@ -49,13 +48,6 @@ def _attachment_specificity(attachment: PolicyAttachment) -> tuple[int, int]:
     return (max(dims, default=0), len(dims))
 
 
-def _attachment_sort_key(attachment: PolicyAttachment) -> tuple[int, int, int, int]:
-    specificity: Final = _attachment_specificity(attachment)
-    if attachment.priority is not None:
-        return (0, attachment.priority, *specificity)
-    return (1, 0, *specificity)
-
-
 class AttachmentRegistry:
     """
     In-memory registry for storing and managing policy attachments.
@@ -80,7 +72,7 @@ class AttachmentRegistry:
         self._config_attachments: tuple[PolicyAttachment, ...] = ()
         self._initialized: bool = False
 
-    def load_attachments(self, attachments_config: list[dict[str, object]]) -> None:
+    def load_attachments(self, attachments_config: list[dict[str, Any]]) -> None:
         """
         Load attachments from a configuration list.
 
@@ -102,7 +94,7 @@ class AttachmentRegistry:
         self._initialized = True
         verbose_proxy_logger.info("Loaded %s policy attachments", len(self._attachments))
 
-    def _parse_attachment(self, attachment_data: Mapping[str, object]) -> PolicyAttachment:
+    def _parse_attachment(self, attachment_data: dict[str, Any]) -> PolicyAttachment:
         """
         Parse an attachment from raw configuration data.
 
@@ -112,60 +104,43 @@ class AttachmentRegistry:
         Returns:
             Parsed PolicyAttachment object
         """
-        return PolicyAttachment.model_validate(
-            {
-                "policy": attachment_data.get("policy", ""),
-                "scope": attachment_data.get("scope"),
-                "teams": attachment_data.get("teams"),
-                "keys": attachment_data.get("keys"),
-                "models": attachment_data.get("models"),
-                "tags": attachment_data.get("tags"),
-                "priority": attachment_data.get("priority"),
-                "default": attachment_data.get("default", False),
-            }
+        return PolicyAttachment(
+            policy=attachment_data.get("policy", ""),
+            scope=attachment_data.get("scope"),
+            teams=attachment_data.get("teams"),
+            keys=attachment_data.get("keys"),
+            models=attachment_data.get("models"),
+            tags=attachment_data.get("tags"),
         )
 
-    def get_attached_policies(
-        self,
-        context: PolicyMatchContext,
-        policy_applies: Callable[[str], bool] | None = None,
-    ) -> list[str]:
+    def get_attached_policies(self, context: PolicyMatchContext) -> list[str]:
         """
         Get list of policy names attached to the given context.
 
         Args:
             context: The request context to match against
-            policy_applies: Optional predicate; attachments whose policy does not apply are ignored
 
         Returns:
             List of policy names that are attached to matching scopes
         """
-        return [r["policy_name"] for r in self.get_attached_policies_with_reasons(context, policy_applies)]
+        return [r["policy_name"] for r in self.get_attached_policies_with_reasons(context)]
 
-    def get_attached_policies_with_reasons(
-        self,
-        context: PolicyMatchContext,
-        policy_applies: Callable[[str], bool] | None = None,
-    ) -> list[PolicyAttachmentMatch]:
+    def get_attached_policies_with_reasons(self, context: PolicyMatchContext) -> list[PolicyAttachmentMatch]:
         """
         Get list of policy names and match reasons for the given context.
 
         Returns a list of dicts with 'policy_name' and 'matched_via' keys.
         The 'matched_via' describes which dimension caused the match.
-        Attachments whose policy fails `policy_applies` are dropped before defaults are considered.
         """
         from litellm.proxy.policy_engine.policy_matcher import PolicyMatcher
 
-        in_scope: Final = tuple(
-            attachment
-            for attachment in self._attachments
-            if PolicyMatcher.scope_matches(scope=attachment.to_policy_scope(), context=context)
-            and (policy_applies is None or policy_applies(attachment.policy))
-        )
-        non_default: Final = tuple(attachment for attachment in in_scope if not attachment.default)
         matching_attachments: Final = sorted(
-            non_default or tuple(attachment for attachment in in_scope if attachment.default),
-            key=_attachment_sort_key,
+            (
+                attachment
+                for attachment in self._attachments
+                if PolicyMatcher.scope_matches(scope=attachment.to_policy_scope(), context=context)
+            ),
+            key=_attachment_specificity,
         )
         broadest_attachment_by_policy: Final = MappingProxyType(
             {attachment.policy: attachment for attachment in reversed(matching_attachments)}
@@ -186,11 +161,6 @@ class AttachmentRegistry:
     @staticmethod
     def _describe_match_reason(attachment: PolicyAttachment, context: PolicyMatchContext) -> str:
         """Describe why an attachment matched the context."""
-        reason: Final = AttachmentRegistry._describe_scope_match(attachment, context)
-        return f"default:{reason}" if attachment.default else reason
-
-    @staticmethod
-    def _describe_scope_match(attachment: PolicyAttachment, context: PolicyMatchContext) -> str:
         from litellm.proxy.policy_engine.policy_matcher import PolicyMatcher
 
         if attachment.is_global():
@@ -345,8 +315,6 @@ class AttachmentRegistry:
                     "keys": attachment_request.keys or [],
                     "models": attachment_request.models or [],
                     "tags": attachment_request.tags or [],
-                    "priority": attachment_request.priority,
-                    "is_default": attachment_request.default,
                     "created_at": datetime.now(timezone.utc),
                     "updated_at": datetime.now(timezone.utc),
                     "created_by": created_by,
@@ -362,8 +330,6 @@ class AttachmentRegistry:
                 keys=attachment_request.keys,
                 models=attachment_request.models,
                 tags=attachment_request.tags,
-                priority=attachment_request.priority,
-                default=attachment_request.default,
             )
             self.add_attachment(attachment)
 
@@ -375,8 +341,6 @@ class AttachmentRegistry:
                 keys=created_attachment.keys or [],
                 models=created_attachment.models or [],
                 tags=created_attachment.tags or [],
-                priority=created_attachment.priority,
-                default=created_attachment.is_default,
                 created_at=created_attachment.created_at,
                 updated_at=created_attachment.updated_at,
                 created_by=created_attachment.created_by,
@@ -453,8 +417,6 @@ class AttachmentRegistry:
                 keys=attachment.keys or [],
                 models=attachment.models or [],
                 tags=attachment.tags or [],
-                priority=attachment.priority,
-                default=attachment.is_default,
                 created_at=attachment.created_at,
                 updated_at=attachment.updated_at,
                 created_by=attachment.created_by,
@@ -493,8 +455,6 @@ class AttachmentRegistry:
                     keys=a.keys or [],
                     models=a.models or [],
                     tags=a.tags or [],
-                    priority=a.priority,
-                    default=a.is_default,
                     created_at=a.created_at,
                     updated_at=a.updated_at,
                     created_by=a.created_by,
@@ -528,8 +488,6 @@ class AttachmentRegistry:
                     keys=attachment_response.keys if attachment_response.keys else None,
                     models=(attachment_response.models if attachment_response.models else None),
                     tags=attachment_response.tags if attachment_response.tags else None,
-                    priority=attachment_response.priority,
-                    default=attachment_response.default,
                 )
                 for attachment_response in attachments
             ]

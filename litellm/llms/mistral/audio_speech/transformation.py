@@ -11,9 +11,7 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 import httpx
-from pydantic import ConfigDict, TypeAdapter, ValidationError
 
-from litellm.litellm_core_utils.url_utils import ensure_api_route, join_api_base
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.llms.base_llm.text_to_speech.transformation import (
     BaseTextToSpeechConfig,
@@ -24,8 +22,6 @@ from litellm.secret_managers.main import get_secret_str
 if TYPE_CHECKING:
     from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
     from litellm.types.llms.openai import HttpxBinaryResponseContent
-
-_JSON_OBJECT: Final = TypeAdapter(Mapping[str, object], config=ConfigDict(hide_input_in_errors=True))
 
 
 class MistralTextToSpeechException(BaseLLMException):
@@ -58,7 +54,7 @@ class MistralTextToSpeechConfig(BaseTextToSpeechConfig):
     )
 
     def get_supported_openai_params(self, model: str) -> list:  # mutable-ok: base class contract returns a plain list
-        return ["voice", "response_format"]
+        return ["voice", "response_format"]  # mutable-ok: base class contract returns a plain list
 
     def _map_openai_voice(self, voice_id: str) -> str:
         return self.OPENAI_VOICE_ALIASES.get(voice_id.lower(), voice_id)
@@ -87,7 +83,7 @@ class MistralTextToSpeechConfig(BaseTextToSpeechConfig):
         ref_audio: Final = kwargs.get("ref_audio") if kwargs else None
         voice_id_kwarg: Final = kwargs.get("voice_id") if kwargs else None
         mapped_voice: Final = self._resolve_voice_id(voice) or self._resolve_voice_id(voice_id_kwarg)
-        mapped_params: Final = {
+        mapped_params: Final = {  # mutable-ok: base class contract returns a plain dict
             key: value
             for key, value in (("response_format", response_format), ("ref_audio", ref_audio))
             if isinstance(value, str)
@@ -107,7 +103,7 @@ class MistralTextToSpeechConfig(BaseTextToSpeechConfig):
                 status_code=401,
                 message="Mistral API key is required. Set MISTRAL_API_KEY or pass api_key.",
             )
-        return {
+        return {  # mutable-ok: base class contract returns a plain dict
             **headers,
             "Authorization": f"Bearer {resolved_key}",
             "Content-Type": "application/json",
@@ -119,7 +115,9 @@ class MistralTextToSpeechConfig(BaseTextToSpeechConfig):
         api_base: str | None,
         litellm_params: Mapping[str, object],
     ) -> str:
-        return join_api_base(ensure_api_route(api_base or self.TTS_BASE_URL, "v1"), "audio/speech")
+        configured_base: Final = (api_base or self.TTS_BASE_URL).rstrip("/")
+        versioned_base: Final = configured_base if configured_base.endswith("/v1") else f"{configured_base}/v1"
+        return f"{versioned_base}/audio/speech"
 
     def transform_text_to_speech_request(
         self,
@@ -145,7 +143,7 @@ class MistralTextToSpeechConfig(BaseTextToSpeechConfig):
         return request_data
 
     def _requested_content_type(self, request: httpx.Request) -> str:
-        request_body: Final = _JSON_OBJECT.validate_python(json.loads(request.content or b"{}"))
+        request_body: Final = json.loads(request.content or b"{}")
         requested_format: Final = request_body.get("response_format")
         if not isinstance(requested_format, str):
             return "audio/mpeg"
@@ -160,9 +158,7 @@ class MistralTextToSpeechConfig(BaseTextToSpeechConfig):
         from litellm.types.llms.openai import HttpxBinaryResponseContent
 
         try:
-            response_json: Final = _JSON_OBJECT.validate_python(raw_response.json())
-        except ValidationError:
-            raise
+            response_json: Final = raw_response.json()
         except (json.JSONDecodeError, ValueError):
             raise MistralTextToSpeechException(
                 status_code=raw_response.status_code,

@@ -1,30 +1,28 @@
 from __future__ import annotations
 
 import ipaddress
-from collections.abc import Sequence
-from typing import Final
+from typing import Any, Final
 
 from fastapi import Request
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from litellm._logging import verbose_proxy_logger
-from litellm.types.llms.base import LiteLLMBaseModel
 
 TrustedProxyNetwork = ipaddress.IPv4Network | ipaddress.IPv6Network
 
 
-class NetworkContext(LiteLLMBaseModel):
+class NetworkContext(BaseModel):
     client_ip: str | None = None
     host: str | None = None
     via_trusted_proxy: bool = False
 
 
-class TrustedProxyConfig(LiteLLMBaseModel):
+class TrustedProxyConfig(BaseModel):
     use_forwarded_for: bool = False
-    trusted_proxy_cidrs: Sequence[str] = Field(default_factory=tuple)
+    trusted_proxy_cidrs: list[str] = Field(default_factory=list)
 
 
-def normalize_cidr_ranges(configured_ranges: object, *, setting_name: str = "trusted_proxy_cidrs") -> list[str]:
+def normalize_cidr_ranges(configured_ranges: Any, *, setting_name: str = "trusted_proxy_cidrs") -> list[str]:
     if not configured_ranges:
         return []
     if isinstance(configured_ranges, str):
@@ -40,7 +38,7 @@ def normalize_cidr_ranges(configured_ranges: object, *, setting_name: str = "tru
 
 
 def parse_trusted_proxy_ranges(
-    configured_ranges: object, *, setting_name: str = "trusted_proxy_cidrs"
+    configured_ranges: Any, *, setting_name: str = "trusted_proxy_cidrs"
 ) -> list[TrustedProxyNetwork]:
     networks: Final[list[TrustedProxyNetwork]] = []
     for cidr in normalize_cidr_ranges(configured_ranges, setting_name=setting_name):
@@ -51,12 +49,6 @@ def parse_trusted_proxy_ranges(
     return networks
 
 
-def _unmapped(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
-    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
-        return addr.ipv4_mapped
-    return addr
-
-
 def ip_in_networks(client_ip: str | None, networks: list[TrustedProxyNetwork]) -> bool:
     if not client_ip or not networks:
         return False
@@ -64,8 +56,7 @@ def ip_in_networks(client_ip: str | None, networks: list[TrustedProxyNetwork]) -
         addr: Final = ipaddress.ip_address(client_ip.strip())
     except ValueError:
         return False
-    candidates: Final = (addr, _unmapped(addr))
-    return any(candidate in network for candidate in candidates for network in networks)
+    return any(addr in network for network in networks)
 
 
 def _is_valid_ip(value: str) -> bool:

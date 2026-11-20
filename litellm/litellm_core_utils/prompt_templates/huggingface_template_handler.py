@@ -1,35 +1,12 @@
 import json
 from datetime import datetime
-from typing import Final, Literal
-
-from pydantic import TypeAdapter
-from typing_extensions import NotRequired, ReadOnly, TypedDict
+from typing import Any, Final
 
 from litellm.llms.custom_httpx.http_handler import (
+    _get_httpx_client,
     get_async_httpx_client,
-    get_httpx_client,
 )
 from litellm.types.llms.custom_http import httpxSpecialProvider
-
-_DECODED_TOKENIZER_CONFIG: Final = TypeAdapter(object)
-
-
-class _TokenizerConfigResult(TypedDict):
-    """Outcome of a tokenizer_config.json fetch, carrying the parsed document when the fetch succeeded."""
-
-    status: ReadOnly[Literal["success", "failure"]]
-    tokenizer: NotRequired[ReadOnly[object]]
-
-
-class _ChatTemplateFileResult(TypedDict):
-    """Outcome of a chat template file fetch, carrying the template body when the fetch succeeded."""
-
-    status: ReadOnly[Literal["success", "failure"]]
-    chat_template: NotRequired[ReadOnly[str]]
-
-
-class _AddedToken(TypedDict, total=False, extra_items=object):
-    content: ReadOnly[str]
 
 
 def strftime_now(fmt: str) -> str:
@@ -45,7 +22,7 @@ def strftime_now(fmt: str) -> str:
     return datetime.now().strftime(fmt)
 
 
-def get_tokenizer_config(hf_model_name: str) -> _TokenizerConfigResult:
+def _get_tokenizer_config(hf_model_name: str) -> dict[str, Any]:
     """
     Fetch tokenizer_config.json from HuggingFace (sync)
 
@@ -57,21 +34,18 @@ def get_tokenizer_config(hf_model_name: str) -> _TokenizerConfigResult:
     """
     try:
         url: Final = f"https://huggingface.co/{hf_model_name}/raw/main/tokenizer_config.json"
-        client: Final = get_httpx_client()
+        client: Final = _get_httpx_client()
         response: Final = client.get(url=url)
     except Exception as e:
         raise e
     if response.status_code == 200:
-        tokenizer_config: Final = _DECODED_TOKENIZER_CONFIG.validate_python(json.loads(response.content))
+        tokenizer_config: Final = json.loads(response.content)
         return {"status": "success", "tokenizer": tokenizer_config}
     else:
         return {"status": "failure"}
 
 
-_get_tokenizer_config = get_tokenizer_config
-
-
-async def aget_tokenizer_config(hf_model_name: str) -> _TokenizerConfigResult:
+async def _aget_tokenizer_config(hf_model_name: str) -> dict[str, Any]:
     """
     Fetch tokenizer_config.json from HuggingFace (async)
 
@@ -90,16 +64,13 @@ async def aget_tokenizer_config(hf_model_name: str) -> _TokenizerConfigResult:
     except Exception as e:
         raise e
     if response.status_code == 200:
-        tokenizer_config: Final = _DECODED_TOKENIZER_CONFIG.validate_python(json.loads(response.content))
+        tokenizer_config: Final = json.loads(response.content)
         return {"status": "success", "tokenizer": tokenizer_config}
     else:
         return {"status": "failure"}
 
 
-_aget_tokenizer_config = aget_tokenizer_config
-
-
-def get_chat_template_file(hf_model_name: str) -> _ChatTemplateFileResult:
+def _get_chat_template_file(hf_model_name: str) -> dict[str, Any]:
     """
     Fetch chat template from separate .jinja file (sync)
 
@@ -110,7 +81,7 @@ def get_chat_template_file(hf_model_name: str) -> _ChatTemplateFileResult:
         Dict with 'status' and optionally 'chat_template' keys
     """
     template_filenames: Final = ["chat_template.jinja", "chat_template.jinja2"]
-    client: Final = get_httpx_client()
+    client: Final = _get_httpx_client()
 
     for filename in template_filenames:
         try:
@@ -127,10 +98,7 @@ def get_chat_template_file(hf_model_name: str) -> _ChatTemplateFileResult:
     return {"status": "failure"}
 
 
-_get_chat_template_file = get_chat_template_file
-
-
-async def aget_chat_template_file(hf_model_name: str) -> _ChatTemplateFileResult:
+async def _aget_chat_template_file(hf_model_name: str) -> dict[str, Any]:
     """
     Fetch chat template from separate .jinja file (async)
 
@@ -160,10 +128,7 @@ async def aget_chat_template_file(hf_model_name: str) -> _ChatTemplateFileResult
     return {"status": "failure"}
 
 
-_aget_chat_template_file = aget_chat_template_file
-
-
-def extract_token_value(token_value: None | str | _AddedToken) -> str:
+def _extract_token_value(token_value: None | str | dict[str, Any]) -> str:
     """
     Extract token string from various formats (string, dict, etc.)
 
@@ -178,6 +143,3 @@ def extract_token_value(token_value: None | str | _AddedToken) -> str:
     if isinstance(token_value, dict):
         return token_value.get("content", "")
     return ""
-
-
-_extract_token_value = extract_token_value

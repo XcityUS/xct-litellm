@@ -7,13 +7,10 @@ Vercel AI Gateway is OpenAI-compatible and supports embeddings via the /v1/embed
 Docs: https://vercel.com/docs/ai-gateway/openai-compat/embeddings
 """
 
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final
 
 import httpx
 
-from litellm.litellm_core_utils.url_utils import join_api_base
-from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.llms.base_llm.embedding.transformation import BaseEmbeddingConfig
 from litellm.secret_managers.main import get_secret_str
 from litellm.types.llms.openai import AllEmbeddingInputValues
@@ -78,8 +75,12 @@ class VercelAIGatewayEmbeddingConfig(BaseEmbeddingConfig):
         """
         Get the complete URL for Vercel AI Gateway Embedding API endpoint.
         """
-        base: Final = api_base or get_secret_str("VERCEL_AI_GATEWAY_API_BASE") or "https://ai-gateway.vercel.sh/v1"
-        return join_api_base(base, "embeddings")
+        if api_base:
+            api_base = api_base.rstrip("/")
+        else:
+            api_base = get_secret_str("VERCEL_AI_GATEWAY_API_BASE") or "https://ai-gateway.vercel.sh/v1"
+
+        return f"{api_base}/embeddings"
 
     def transform_embedding_request(
         self,
@@ -159,14 +160,12 @@ class VercelAIGatewayEmbeddingConfig(BaseEmbeddingConfig):
                 optional_params[param] = value
         return optional_params
 
-    def get_error_class(
-        self, error_message: str, status_code: int, headers: Mapping[str, str] | httpx.Headers
-    ) -> BaseLLMException:
+    def get_error_class(self, error_message: str, status_code: int, headers: Any) -> Any:
         """
         Get the error class for Vercel AI Gateway errors.
         """
         return VercelAIGatewayException(
             message=error_message,
             status_code=status_code,
-            headers=headers if isinstance(headers, httpx.Headers) else httpx.Headers(headers),
+            headers=headers,
         )

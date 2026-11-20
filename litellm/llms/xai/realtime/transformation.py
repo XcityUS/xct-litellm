@@ -16,8 +16,7 @@ construction time (see ``handler.py``) so all normalization is isolated here
 and ``RealTimeStreaming`` stays provider-agnostic.
 """
 
-from collections.abc import Mapping
-from typing import Final
+from typing import Any, Final
 
 
 class XAIRealtimeNormalizer:
@@ -59,7 +58,7 @@ class XAIRealtimeNormalizer:
         # Cache content-part objects keyed by (response_id, item_id, content_index)
         # so that ``response.content_part.done`` events missing ``part`` can be
         # back-filled from earlier ``content_part.added`` / delta-done events.
-        self._content_part_by_key: dict[tuple, dict[str, object]] = {}
+        self._content_part_by_key: dict[tuple, dict[str, Any]] = {}
 
     # ---------------------------------------------------------------------------
     # Public interface consumed by RealTimeStreaming
@@ -77,18 +76,6 @@ class XAIRealtimeNormalizer:
         event = self._inject_missing_indices(event, event_type)
         event = self._normalize_response_usage_event(event, event_type)
         return event
-
-    def gate_turn_detection(self, _turn_detection: object, /) -> Mapping[str, object]:
-        """xAI auto-answers under ``server_vad`` even with ``create_response`` off, so the gate is always untyped."""
-        return {"create_response": False}
-
-    @property
-    def deletes_conversation_items(self) -> bool:
-        """xAI answers ``conversation.item.delete`` with ``Item not found`` until it commits the audio item.
-
-        The guardrail blocks on an interim transcript, before that commit.
-        """
-        return False
 
     def patch_outgoing_session(self, session: dict) -> dict:
         """Patch a client ``session.update`` payload before forwarding to xAI.
@@ -153,7 +140,7 @@ class XAIRealtimeNormalizer:
             }
         self._content_part_by_key[key] = updated
 
-    def _resolve_content_part(self, event: dict) -> dict[str, object]:
+    def _resolve_content_part(self, event: dict) -> dict[str, Any]:
         part: Final = event.get("part")
         if isinstance(part, dict):
             return part
@@ -227,7 +214,7 @@ class XAIRealtimeNormalizer:
         needs_content: Final = event_type in self._EVENTS_NEEDING_CONTENT_INDEX
         if not needs_output and not needs_content:
             return event
-        patch: Final[dict[str, object]] = {}
+        patch: Final[dict[str, Any]] = {}
         if needs_output and "output_index" not in event:
             patch["output_index"] = 0
         if needs_content and "content_index" not in event:
@@ -241,8 +228,8 @@ class XAIRealtimeNormalizer:
     # ---------------------------------------------------------------------------
 
     @staticmethod
-    def _default_ga_usage() -> dict[str, object]:
-        default_details: Final[dict[str, int]] = {
+    def _default_ga_usage() -> dict[str, Any]:
+        default_details: Final[dict[str, Any]] = {
             "cached_tokens": 0,
             "text_tokens": 0,
             "audio_tokens": 0,
@@ -256,7 +243,7 @@ class XAIRealtimeNormalizer:
         }
 
     @staticmethod
-    def _normalize_usage(usage: object, *, empty_as_null: bool) -> dict[str, object] | None:
+    def _normalize_usage(usage: object, *, empty_as_null: bool) -> dict[str, Any] | None:
         """Coerce a usage object into the full OpenAI GA shape.
 
         ``empty_as_null=True`` for ``response.created`` (usage optional).
@@ -266,12 +253,12 @@ class XAIRealtimeNormalizer:
             return None
         if not usage:
             return None if empty_as_null else XAIRealtimeNormalizer._default_ga_usage()
-        default_details: Final[dict[str, int]] = {
+        default_details: Final[dict[str, Any]] = {
             "cached_tokens": 0,
             "text_tokens": 0,
             "audio_tokens": 0,
         }
-        normalized: Final[dict[str, object]] = {
+        normalized: Final[dict[str, Any]] = {
             "total_tokens": usage.get("total_tokens", 0),
             "input_tokens": usage.get("input_tokens", 0),
             "output_tokens": usage.get("output_tokens", 0),

@@ -29,7 +29,7 @@ guardrails:
 
 # Optional: Configure general settings
 general_settings:
-  master_key: os.environ/LITELLM_MASTER_KEY
+  master_key: sk-1234
   
 # Optional: Add logging configuration
 litellm_settings:

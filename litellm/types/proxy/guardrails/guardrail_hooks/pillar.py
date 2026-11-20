@@ -2,14 +2,12 @@
 Pillar Security Guardrail Config Model
 """
 
-from pydantic import Field
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, Field
 
 from .base import GuardrailConfigModel
 
 
-class PillarGuardrailConfigModelOptionalParams(LiteLLMBaseModel):
+class PillarGuardrailConfigModelOptionalParams(BaseModel):
     """Optional parameters for the Pillar Security guardrail"""
 
     on_flagged_action: str | None = Field(

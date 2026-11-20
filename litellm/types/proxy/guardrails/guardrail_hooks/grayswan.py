@@ -1,13 +1,11 @@
 """Gray Swan guardrail configuration models."""
 
-from pydantic import Field
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, Field
 
 from .base import GuardrailConfigModel
 
 
-class GraySwanGuardrailConfigModelOptionalParams(LiteLLMBaseModel):
+class GraySwanGuardrailConfigModelOptionalParams(BaseModel):
     """Optional parameters for the Gray Swan guardrail."""
 
     on_flagged_action: str | None = Field(

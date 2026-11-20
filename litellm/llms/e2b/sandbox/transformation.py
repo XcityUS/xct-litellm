@@ -8,14 +8,10 @@ Talks to e2b's REST API directly over httpx (no e2b SDK dependency):
 """
 
 import json
-from collections.abc import Mapping
-from typing import Final, cast
+from typing import Final
 
 import httpx
-from pydantic import ConfigDict, TypeAdapter
 
-from litellm.litellm_core_utils.hidden_params import HIDDEN_PARAMS_ATTR
-from litellm.litellm_core_utils.url_utils import join_api_base
 from litellm.llms.base_llm.sandbox.transformation import (
     SANDBOX_MAX_OUTPUT_BYTES,
     BaseSandboxConfig,
@@ -35,12 +31,6 @@ E2B_DEFAULT_DOMAIN: Final = "e2b.app"
 JUPYTER_PORT: Final = 49999
 DEFAULT_SANDBOX_TIMEOUT: Final = 300
 MAX_OUTPUT_BYTES: Final = SANDBOX_MAX_OUTPUT_BYTES
-
-_JSON_OBJECT: Final = TypeAdapter(Mapping[str, object], config=ConfigDict(hide_input_in_errors=True))
-_MESSAGE: Final[TypeAdapter[Mapping[str, object] | None]] = TypeAdapter(
-    Mapping[str, object] | None, config=ConfigDict(hide_input_in_errors=True)
-)
-_TEXT: Final = TypeAdapter(str, config=ConfigDict(strict=True, hide_input_in_errors=True))
 
 
 class E2BSandboxConfig(BaseSandboxConfig):
@@ -79,20 +69,18 @@ class E2BSandboxConfig(BaseSandboxConfig):
             body["metadata"] = metadata
 
         response: Final = await self._http(client).post(
-            url=join_api_base(base, "sandboxes"),
+            url=f"{base}/sandboxes",
             headers={"X-API-Key": key, "Content-Type": "application/json"},
             json=body,
         )
-        data: Final = _JSON_OBJECT.validate_python(response.json())
+        data: Final = response.json()
 
-        handle: Final = ContainerHandle.model_validate(
-            {
-                "id": data["sandboxID"],
-                "provider": "e2b",
-                "domain": data.get("domain") or E2B_DEFAULT_DOMAIN,
-            }
+        handle: Final = ContainerHandle(
+            id=data["sandboxID"],
+            provider="e2b",
+            domain=data.get("domain") or E2B_DEFAULT_DOMAIN,
         )
-        handle.hidden_params = {
+        handle._hidden_params = {
             "envd_access_token": data.get("envdAccessToken"),
             "traffic_access_token": data.get("trafficAccessToken"),
             "api_key": key,
@@ -111,11 +99,8 @@ class E2BSandboxConfig(BaseSandboxConfig):
         **kwargs,
     ) -> CodeExecutionResult:
         handle: Final = self._as_handle(container)
-        hidden_params: Final = cast(  # cast-ok: preserve mapping operations on the validated handle
-            dict[str, object], getattr(handle, HIDDEN_PARAMS_ATTR)
-        )
 
-        token: Final = hidden_params.get("envd_access_token")
+        token: Final = handle._hidden_params.get("envd_access_token")
         if not token:
             raise ValueError(
                 "Cannot run code from a sandbox id alone. e2b secure sandboxes "
@@ -124,7 +109,7 @@ class E2BSandboxConfig(BaseSandboxConfig):
             )
 
         headers: Final = {"Content-Type": "application/json", "X-Access-Token": token}
-        traffic_token: Final = hidden_params.get("traffic_access_token")
+        traffic_token: Final = handle._hidden_params.get("traffic_access_token")
         if traffic_token:
             headers["E2B-Traffic-Access-Token"] = traffic_token
 
@@ -148,14 +133,11 @@ class E2BSandboxConfig(BaseSandboxConfig):
         **kwargs,
     ) -> bool:
         handle: Final = self._as_handle(container)
-        hidden_params: Final = cast(  # cast-ok: preserve mapping operations on the validated handle
-            dict[str, object], getattr(handle, HIDDEN_PARAMS_ATTR)
-        )
-        key: Final = api_key or hidden_params.get("api_key") or self.validate_environment()
-        base: Final = str(api_base or hidden_params.get("api_base") or E2B_API_BASE)
+        key: Final = api_key or handle._hidden_params.get("api_key") or self.validate_environment()
+        base: Final = api_base or handle._hidden_params.get("api_base") or E2B_API_BASE
         try:
             response: Final = await self._http(client).delete(
-                url=join_api_base(base, f"sandboxes/{handle.id}"),
+                url=f"{base}/sandboxes/{handle.id}",
                 headers={"X-API-Key": key},
             )
         except httpx.HTTPStatusError as e:
@@ -169,14 +151,14 @@ class E2BSandboxConfig(BaseSandboxConfig):
         if isinstance(container, ContainerHandle):
             return container
         handle: Final = ContainerHandle(id=str(container), provider="e2b", domain=E2B_DEFAULT_DOMAIN)
-        handle.hidden_params = {}
+        handle._hidden_params = {}
         return handle
 
     @staticmethod
     def _parse_lines(lines: list[str]) -> CodeExecutionResult:
         def _try_parse(stripped: str):
             try:
-                return _MESSAGE.validate_python(json.loads(stripped))
+                return json.loads(stripped)
             except json.JSONDecodeError:
                 return None
 
@@ -196,12 +178,10 @@ class E2BSandboxConfig(BaseSandboxConfig):
             None,
         )
 
-        return CodeExecutionResult.model_validate(
-            {
-                "stdout": "".join(_TEXT.validate_python(m.get("text", "")) for m in of_type("stdout")),
-                "stderr": "".join(_TEXT.validate_python(m.get("text", "")) for m in of_type("stderr")),
-                "results": [{k: v for k, v in m.items() if k != "type"} for m in of_type("result")],
-                "error": error,
-                "execution_count": execution_count,
-            }
+        return CodeExecutionResult(
+            stdout="".join(m.get("text", "") for m in of_type("stdout")),
+            stderr="".join(m.get("text", "") for m in of_type("stderr")),
+            results=[{k: v for k, v in m.items() if k != "type"} for m in of_type("result")],
+            error=error,
+            execution_count=execution_count,
         )

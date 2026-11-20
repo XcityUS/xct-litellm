@@ -5,9 +5,7 @@ Pydantic models for Tool Policy management endpoints.
 from datetime import datetime
 from typing import Literal
 
-from pydantic import Field
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, Field
 
 ToolCallPolicy = Literal["trusted", "untrusted", "dual_llm", "blocked"]
 
@@ -15,13 +13,7 @@ ToolInputPolicy = Literal["trusted", "untrusted", "blocked"]
 ToolOutputPolicy = Literal["trusted", "untrusted"]
 
 
-class ToolDiscoveryUser(LiteLLMBaseModel):
-    user_id: str
-    user_email: str | None = None
-    user_alias: str | None = None
-
-
-class LiteLLM_ToolTableRow(LiteLLMBaseModel):
+class LiteLLM_ToolTableRow(BaseModel):
     tool_id: str
     tool_name: str
     origin: str | None = None
@@ -33,7 +25,6 @@ class LiteLLM_ToolTableRow(LiteLLMBaseModel):
     team_id: str | None = None
     key_alias: str | None = None
     user_agent: str | None = None
-    user: ToolDiscoveryUser | None = None
     last_used_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -41,12 +32,12 @@ class LiteLLM_ToolTableRow(LiteLLMBaseModel):
     updated_by: str | None = None
 
 
-class ToolListResponse(LiteLLMBaseModel):
+class ToolListResponse(BaseModel):
     tools: list[LiteLLM_ToolTableRow]
     total: int
 
 
-class ToolPolicyUpdateRequest(LiteLLMBaseModel):
+class ToolPolicyUpdateRequest(BaseModel):
     tool_name: str
     input_policy: ToolInputPolicy | None = None
     output_policy: ToolOutputPolicy | None = None
@@ -55,7 +46,7 @@ class ToolPolicyUpdateRequest(LiteLLMBaseModel):
     key_alias: str | None = None
 
 
-class ToolPolicyUpdateResponse(LiteLLMBaseModel):
+class ToolPolicyUpdateResponse(BaseModel):
     tool_name: str
     input_policy: ToolInputPolicy | None = None
     output_policy: ToolOutputPolicy | None = None
@@ -64,7 +55,7 @@ class ToolPolicyUpdateResponse(LiteLLMBaseModel):
     key_hash: str | None = None
 
 
-class ToolPolicyOverrideRow(LiteLLMBaseModel):
+class ToolPolicyOverrideRow(BaseModel):
     override_id: str
     tool_name: str
     team_id: str | None = None
@@ -75,23 +66,23 @@ class ToolPolicyOverrideRow(LiteLLMBaseModel):
     updated_at: datetime | None = None
 
 
-class ToolPolicyOption(LiteLLMBaseModel):
+class ToolPolicyOption(BaseModel):
     value: str
     label: str
     description: str
 
 
-class ToolPolicyOptionsResponse(LiteLLMBaseModel):
+class ToolPolicyOptionsResponse(BaseModel):
     input_policies: list[ToolPolicyOption]
     output_policies: list[ToolPolicyOption]
 
 
-class ToolDetailResponse(LiteLLMBaseModel):
+class ToolDetailResponse(BaseModel):
     tool: LiteLLM_ToolTableRow
     overrides: list[ToolPolicyOverrideRow] = Field(default_factory=list)
 
 
-class ToolUsageLogEntry(LiteLLMBaseModel):
+class ToolUsageLogEntry(BaseModel):
     """One spend log row for a tool call (for UI "recent logs" table)."""
 
     id: str  # request_id
@@ -102,14 +93,14 @@ class ToolUsageLogEntry(LiteLLMBaseModel):
     input_snippet: str | None = None
 
 
-class ToolUsageLogsResponse(LiteLLMBaseModel):
+class ToolUsageLogsResponse(BaseModel):
     logs: list[ToolUsageLogEntry]
     total: int
     page: int
     page_size: int
 
 
-class ToolSpendEntry(LiteLLMBaseModel):
+class ToolSpendEntry(BaseModel):
     """Total spend attributed to one tool over the requested window."""
 
     tool_name: str
@@ -121,7 +112,7 @@ class ToolSpendEntry(LiteLLMBaseModel):
     total_tokens: int = 0
 
 
-class ToolSpendDailyEntry(LiteLLMBaseModel):
+class ToolSpendDailyEntry(BaseModel):
     """Spend attributed to one tool on one UTC day."""
 
     date: str
@@ -130,7 +121,7 @@ class ToolSpendDailyEntry(LiteLLMBaseModel):
     call_count: int = 0
 
 
-class ToolSpendResponse(LiteLLMBaseModel):
+class ToolSpendResponse(BaseModel):
     by_tool: list[ToolSpendEntry] = Field(default_factory=list)
     daily: list[ToolSpendDailyEntry] = Field(default_factory=list)
     start_date: str | None = None

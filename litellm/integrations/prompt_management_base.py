@@ -33,8 +33,6 @@ def resolve_prompt_manager_ignore_flags(
 
 
 class PromptManagementBase(ABC):
-    ignore_prompt_manager_optional_params: bool | None = False
-
     @property
     @abstractmethod
     def integration_name(self) -> str:
@@ -200,8 +198,7 @@ class PromptManagementBase(ABC):
         resolved_ignore_model, resolved_ignore_optional_params = resolve_prompt_manager_ignore_flags(
             prompt_spec=prompt_spec,
             ignore_prompt_manager_model=ignore_prompt_manager_model,
-            ignore_prompt_manager_optional_params=ignore_prompt_manager_optional_params
-            or self.ignore_prompt_manager_optional_params,
+            ignore_prompt_manager_optional_params=ignore_prompt_manager_optional_params,
         )
         return self.post_compile_prompt_processing(
             prompt_template=prompt_template,
@@ -248,8 +245,7 @@ class PromptManagementBase(ABC):
         resolved_ignore_model, resolved_ignore_optional_params = resolve_prompt_manager_ignore_flags(
             prompt_spec=prompt_spec,
             ignore_prompt_manager_model=ignore_prompt_manager_model,
-            ignore_prompt_manager_optional_params=ignore_prompt_manager_optional_params
-            or self.ignore_prompt_manager_optional_params,
+            ignore_prompt_manager_optional_params=ignore_prompt_manager_optional_params,
         )
         return self.post_compile_prompt_processing(
             prompt_template=prompt_template,

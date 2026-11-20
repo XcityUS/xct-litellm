@@ -1,12 +1,10 @@
-from typing import Final
+from typing import Any, Final
 
 from openai._models import BaseModel as OpenAIObject
-from pydantic import ConfigDict
-
-from litellm.types.llms.base_model import LiteLLMBaseModel
+from pydantic import BaseModel, ConfigDict
 
 
-class LiteLLMPydanticObjectBase(LiteLLMBaseModel):
+class LiteLLMPydanticObjectBase(BaseModel):
     """
     Implements default functions, all pydantic objects should have.
     """
@@ -28,7 +26,7 @@ class LiteLLMPydanticObjectBase(LiteLLMBaseModel):
     model_config = ConfigDict(protected_namespaces=())
 
 
-class BaseLiteLLMOpenAIResponseObject(LiteLLMBaseModel):
+class BaseLiteLLMOpenAIResponseObject(BaseModel):
     model_config = ConfigDict(extra="allow", protected_namespaces=())
 
     def __getitem__(self, key):
@@ -45,7 +43,7 @@ class BaseLiteLLMOpenAIResponseObject(LiteLLMBaseModel):
 
 
 class HiddenParams(OpenAIObject):
-    original_response: str | object | None = None
+    original_response: str | Any | None = None
     model_id: str | None = None  # used in Router for individual deployments
     api_base: str | None = None  # returns api base used for making completion call
     _response_ms: float | None = None
@@ -79,7 +77,7 @@ class HiddenParams(OpenAIObject):
         return data
 
 
-class CachedTokensDetails(LiteLLMBaseModel):
+class CachedTokensDetails(BaseModel):
     text_tokens: int | None = None
     audio_tokens: int | None = None
     image_tokens: int | None = None

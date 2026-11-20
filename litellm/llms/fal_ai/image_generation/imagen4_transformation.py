@@ -1,25 +1,20 @@
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Final, cast
+from typing import TYPE_CHECKING, Any, Final
 
 import httpx
-from pydantic import ConfigDict, TypeAdapter
 
-from litellm.litellm_core_utils.hidden_params import HIDDEN_PARAMS_ATTR
 from litellm.types.llms.openai import OpenAIImageGenerationOptionalParams
 from litellm.types.utils import ImageObject, ImageResponse
 
 from .transformation import FalAIBaseConfig
 
 if TYPE_CHECKING:
+    import tiktoken
+
     from litellm.litellm_core_utils.litellm_logging import Logging as _LiteLLMLoggingObj
-    from litellm.litellm_core_utils.tokenizer import Encoding as Tokenizer
 
     LiteLLMLoggingObj = _LiteLLMLoggingObj
 else:
     LiteLLMLoggingObj = Any
-
-_JSON_VALUE: Final = TypeAdapter(object)
-_JSON_OBJECT: Final = TypeAdapter(Mapping[str, object], config=ConfigDict(hide_input_in_errors=True))
 
 
 class FalAIImagen4Config(FalAIBaseConfig):
@@ -187,7 +182,7 @@ class FalAIImagen4Config(FalAIBaseConfig):
         request_data: dict,
         optional_params: dict,
         litellm_params: dict,
-        encoding: "Tokenizer | None",
+        encoding: "tiktoken.Encoding | None",
         api_key: str | None = None,
         json_mode: bool | None = None,
     ) -> ImageResponse:
@@ -208,7 +203,7 @@ class FalAIImagen4Config(FalAIBaseConfig):
         }
         """
         try:
-            response_data: Final = _JSON_VALUE.validate_python(raw_response.json())
+            response_data: Final = raw_response.json()
         except Exception as e:
             raise self.get_error_class(
                 error_message=f"Error transforming image generation response: {e}",
@@ -220,8 +215,7 @@ class FalAIImagen4Config(FalAIBaseConfig):
             model_response.data = []
 
         # Handle Imagen4 response format
-        response_object: Final = _JSON_OBJECT.validate_python(response_data)
-        images: Final = response_object.get("images", [])
+        images: Final = response_data.get("images", [])
         if isinstance(images, list):
             for image_data in images:
                 if isinstance(image_data, dict):
@@ -241,11 +235,8 @@ class FalAIImagen4Config(FalAIBaseConfig):
                     )
 
         # Add seed metadata from Imagen4 response
-        if hasattr(model_response, HIDDEN_PARAMS_ATTR):
-            hidden_params: Final = cast(  # cast-ok: preserve mapping operations on dynamic response metadata
-                dict[str, object], getattr(model_response, HIDDEN_PARAMS_ATTR)
-            )
-            if "seed" in response_object:
-                hidden_params["seed"] = response_object["seed"]
+        if hasattr(model_response, "_hidden_params"):
+            if "seed" in response_data:
+                model_response._hidden_params["seed"] = response_data["seed"]
 
         return model_response

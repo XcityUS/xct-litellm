@@ -9,11 +9,10 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Final
 
-from pydantic import ConfigDict, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 from typing_extensions import assert_never
 
 from litellm.llms.bedrock.common_utils import BedrockError
-from litellm.types.llms.base import LiteLLMBaseModel
 from litellm.types.llms.bedrock import (
     TWELVELABS_MARENGO_3_EMBEDDING_OPTIONS,
     TWELVELABS_MARENGO_3_EMBEDDING_SCOPES,
@@ -58,7 +57,7 @@ def is_marengo_3_model(model: str | None) -> bool:
     return MARENGO_3_MODEL_MARKER in (model or "")
 
 
-class Marengo3Params(LiteLLMBaseModel):
+class Marengo3Params(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
     inputType: TWELVELABS_MARENGO_3_INPUT_TYPES | None = None

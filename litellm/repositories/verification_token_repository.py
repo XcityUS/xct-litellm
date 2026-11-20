@@ -5,11 +5,8 @@ VerificationToken repository for database operations on LiteLLM_VerificationToke
 import json
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from types import TracebackType
-from typing import TYPE_CHECKING, Final, Protocol
+from typing import TYPE_CHECKING, Final
 
-from litellm.constants import UI_SESSION_TOKEN_TEAM_ID
-from litellm.litellm_core_utils.core_helpers import require_attributes
 from litellm.models.verification_token import (
     LiteLLM_VerificationToken,
 )
@@ -28,36 +25,7 @@ if TYPE_CHECKING:
         LiteLLM_VerificationToken as PrismaVerificationToken,
     )
 
-
-class _VerificationTokenTables(Protocol):
-    """The two verification token tables this repository reads and writes."""
-
-    @property
-    def litellm_verificationtoken(self) -> TableActions["PrismaVerificationToken"]: ...
-
-    @property
-    def litellm_deletedverificationtoken(self) -> TableActions["PrismaDeletedVerificationToken"]: ...
-
-
-class _VerificationTokenTransactionManager(Protocol):
-    async def __aenter__(self) -> _VerificationTokenTables: ...
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        traceback: TracebackType | None,
-    ) -> bool | None: ...
-
-
-class _PrismaVerificationTokenDb(_VerificationTokenTables, Protocol):
-    def tx(self) -> _VerificationTokenTransactionManager: ...
-
-
-class _PrismaClientView(Protocol):
-    @property
-    def db(self) -> _PrismaVerificationTokenDb: ...
-
+    from litellm.proxy.utils import PrismaClient
 
 _JSON_ENCODED_TOKEN_FIELDS: Final = (
     "aliases",
@@ -76,16 +44,17 @@ class VerificationTokenRepository(BaseRepository[LiteLLM_VerificationToken]):
     """Repository for verification token (API key) database operations."""
 
     @property
-    def _db(self) -> _PrismaVerificationTokenDb:
-        return require_attributes(self._connected_client(), _PrismaClientView, "db").db
+    def prisma_client(self) -> "PrismaClient":
+        prisma_client: Final[PrismaClient] = super().prisma_client
+        return prisma_client
 
     @property
     def table(self) -> TableActions["PrismaVerificationToken"]:
-        return self._db.litellm_verificationtoken
+        return self.prisma_client.db.litellm_verificationtoken
 
     @property
     def deleted_table(self) -> TableActions["PrismaDeletedVerificationToken"]:
-        return self._db.litellm_deletedverificationtoken
+        return self.prisma_client.db.litellm_deletedverificationtoken
 
     @property
     def model_class(self) -> type[LiteLLM_VerificationToken]:
@@ -123,29 +92,6 @@ class VerificationTokenRepository(BaseRepository[LiteLLM_VerificationToken]):
         """Find all tokens belonging to a user."""
         records: Final[Sequence[PrismaVerificationToken]] = await self.table.find_many(where={"user_id": user_id})
         return self._to_model_list(records)
-
-    async def find_newest_reusable_key(self, user_id: str, team_id: str | None) -> LiteLLM_VerificationToken | None:
-        records: Final[Sequence[PrismaVerificationToken]] = await self.table.find_many(
-            where={
-                "user_id": user_id,
-                "team_id": team_id,
-                "expires": None,
-                "AND": [
-                    {"OR": [{"blocked": False}, {"blocked": None}]},
-                    {
-                        "OR": [
-                            {"team_id": None},
-                            {"team_id": {"not": UI_SESSION_TOKEN_TEAM_ID}},
-                        ]
-                    },
-                ],
-            },
-            order={"created_at": "desc"},
-        )
-        return next(
-            (key for key in self._to_model_list(records) if key.metadata.get("auto_registered") is not True),
-            None,
-        )
 
     async def find_by_team_id(self, team_id: str) -> list[LiteLLM_VerificationToken]:
         """Find all tokens belonging to a team."""
@@ -379,7 +325,7 @@ class VerificationTokenRepository(BaseRepository[LiteLLM_VerificationToken]):
         archive_data["litellm_changed_by"] = litellm_changed_by
         archive_data["deleted_at"] = datetime.utcnow()
 
-        async with self._db.tx() as tx:
+        async with self.prisma_client.db.tx() as tx:
             await tx.litellm_deletedverificationtoken.create(data=archive_data)
             await tx.litellm_verificationtoken.delete(where={"token": token})
 

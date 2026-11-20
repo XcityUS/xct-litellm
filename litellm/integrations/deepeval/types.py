@@ -1,10 +1,8 @@
 # Duplicate -> https://github.com/confident-ai/deepeval/blob/main/deepeval/tracing/api.py
 from enum import Enum
-from typing import ClassVar, Literal
+from typing import Any, ClassVar, Literal
 
-from pydantic import ConfigDict, Field
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SpanApiType(Enum):
@@ -23,7 +21,7 @@ class TraceSpanApiStatus(Enum):
     ERRORED = "ERRORED"
 
 
-class BaseApiSpan(LiteLLMBaseModel):
+class BaseApiSpan(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(use_enum_values=True)
 
     uuid: str
@@ -46,7 +44,7 @@ class BaseApiSpan(LiteLLMBaseModel):
     cost_per_output_token: float | None = Field(None, alias="costPerOutputToken")
 
 
-class TraceApi(LiteLLMBaseModel):
+class TraceApi(BaseModel):
     uuid: str
     base_spans: list[BaseApiSpan] = Field(alias="baseSpans")
     agent_spans: list[BaseApiSpan] = Field(alias="agentSpans")
@@ -55,7 +53,7 @@ class TraceApi(LiteLLMBaseModel):
     tool_spans: list[BaseApiSpan] = Field(alias="toolSpans")
     start_time: str = Field(alias="startTime")
     end_time: str = Field(alias="endTime")
-    metadata: dict[str, object] | None = Field(None)
+    metadata: dict[str, Any] | None = Field(None)
     tags: list[str] | None = Field(None)
     environment: str | None = Field(None)
 

@@ -5,11 +5,9 @@ Uses httpx for HTTP requests to OpenAI's /v1/responses/input_tokens endpoint.
 """
 
 import json
-from collections.abc import Mapping, Sequence
-from typing import Final
+from typing import Any, Final
 
 import httpx
-from pydantic import TypeAdapter
 
 import litellm
 from litellm._logging import verbose_logger
@@ -18,8 +16,6 @@ from litellm.llms.openai.common_utils import OpenAIError
 from litellm.llms.openai.responses.count_tokens.transformation import (
     OpenAICountTokensConfig,
 )
-
-_DECODED_JSON: Final = TypeAdapter(object)
 
 
 class OpenAICountTokensHandler(OpenAICountTokensConfig):
@@ -30,14 +26,13 @@ class OpenAICountTokensHandler(OpenAICountTokensConfig):
     async def handle_count_tokens_request(
         self,
         model: str,
-        input: str | Sequence[object],
+        input: str | list[Any],
         api_key: str,
         api_base: str | None = None,
         timeout: float | httpx.Timeout | None = None,
-        tools: Sequence[Mapping[str, object]] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         instructions: str | None = None,
-        text: Mapping[str, object] | None = None,
-    ) -> object:
+    ) -> dict[str, Any]:
         """
         Handle a token counting request to OpenAI's Responses API.
 
@@ -57,21 +52,8 @@ class OpenAICountTokensHandler(OpenAICountTokensConfig):
                 input=input,
                 tools=tools,
                 instructions=instructions,
-                text=text,
             )
-        except ValueError as e:
-            verbose_logger.error("Error in CountTokens handler: %s", e)
-            raise OpenAIError(status_code=500, message=f"CountTokens processing error: {e}")
-        return await self.post_count_request(request_body, api_key, api_base, timeout)
 
-    async def post_count_request(
-        self,
-        request_body: Mapping[str, object],
-        api_key: str,
-        api_base: str | None = None,
-        timeout: float | httpx.Timeout | None = None,
-    ) -> object:
-        try:
             endpoint_url: Final = self.get_openai_count_tokens_endpoint(api_base)
 
             verbose_logger.debug("Making request to: %s", endpoint_url)
@@ -85,7 +67,7 @@ class OpenAICountTokensHandler(OpenAICountTokensConfig):
             response: Final = await async_client.post(
                 endpoint_url,
                 headers=headers,
-                json=dict(request_body),
+                json=request_body,
                 timeout=request_timeout,
             )
 
@@ -99,7 +81,7 @@ class OpenAICountTokensHandler(OpenAICountTokensConfig):
                     message=error_text,
                 )
 
-            openai_response: Final = _DECODED_JSON.validate_python(response.json())
+            openai_response: Final = response.json()
             verbose_logger.debug("OpenAI response: %s", openai_response)
             return openai_response
 
@@ -111,8 +93,6 @@ class OpenAICountTokensHandler(OpenAICountTokensConfig):
                 status_code=e.response.status_code,
                 message=e.response.text,
             )
-        except litellm.Timeout as e:
-            raise OpenAIError(status_code=e.status_code, message=str(e)) from e
         except (httpx.RequestError, json.JSONDecodeError, ValueError) as e:
             verbose_logger.error("Error in CountTokens handler: %s", e)
             raise OpenAIError(

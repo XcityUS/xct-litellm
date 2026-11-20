@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import types
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Final
 
 import httpx
@@ -46,10 +45,9 @@ class BaseContainerConfig(ABC):
 
     @classmethod
     def get_config(cls):
-        class_attributes: Final[Mapping[str, object]] = types.MappingProxyType(cls.__dict__)
         return {
             k: v
-            for k, v in class_attributes.items()
+            for k, v in cls.__dict__.items()
             if not k.startswith("__")
             and not k.startswith("_abc")
             and not isinstance(
@@ -81,7 +79,6 @@ class BaseContainerConfig(ABC):
         self,
         headers: dict,
         api_key: str | None = None,
-        litellm_params: GenericLiteLLMParams | None = None,
     ) -> dict:
         return {}
 
@@ -133,7 +130,7 @@ class BaseContainerConfig(ABC):
         after: str | None = None,
         limit: int | None = None,
         order: str | None = None,
-        extra_query: Mapping[str, object] | None = None,
+        extra_query: dict[str, Any] | None = None,
     ) -> tuple[str, dict]:
         """Transform the container list request into a URL and params.
 
@@ -209,7 +206,7 @@ class BaseContainerConfig(ABC):
         after: str | None = None,
         limit: int | None = None,
         order: str | None = None,
-        extra_query: Mapping[str, object] | None = None,
+        extra_query: dict[str, Any] | None = None,
     ) -> tuple[str, dict]:
         """Transform the container file list request into a URL and params.
 

@@ -5,9 +5,8 @@ Type definitions for OpenAI Evals API
 import builtins
 from typing import Literal
 
+from pydantic import BaseModel
 from typing_extensions import Required, TypedDict
-
-from litellm.types.llms.base import LiteLLMBaseModel
 
 
 # Evals API Request Types
@@ -129,7 +128,7 @@ class ListEvalsParams(TypedDict, total=False):
 
 
 # Evals API Response Types
-class Eval(LiteLLMBaseModel):
+class Eval(BaseModel):
     """Represents an evaluation from the OpenAI Evals API"""
 
     id: str
@@ -157,7 +156,7 @@ class Eval(LiteLLMBaseModel):
     """Additional metadata"""
 
 
-class ListEvalsResponse(LiteLLMBaseModel):
+class ListEvalsResponse(BaseModel):
     """Response from listing evaluations"""
 
     object: str = "list"
@@ -176,7 +175,7 @@ class ListEvalsResponse(LiteLLMBaseModel):
     """Whether there are more evaluations available"""
 
 
-class DeleteEvalResponse(LiteLLMBaseModel):
+class DeleteEvalResponse(BaseModel):
     """Response from deleting an evaluation"""
 
     eval_id: str
@@ -189,7 +188,7 @@ class DeleteEvalResponse(LiteLLMBaseModel):
     """Whether the evaluation was successfully deleted"""
 
 
-class CancelEvalResponse(LiteLLMBaseModel):
+class CancelEvalResponse(BaseModel):
     """Response from cancelling an evaluation"""
 
     id: str
@@ -288,7 +287,7 @@ class ListRunsParams(TypedDict, total=False):
 
 
 # Run API Response Types
-class ResultCounts(LiteLLMBaseModel):
+class ResultCounts(BaseModel):
     """Result counts for a run"""
 
     total: int
@@ -304,7 +303,7 @@ class ResultCounts(LiteLLMBaseModel):
     """Number of error results"""
 
 
-class PerTestingCriteriaResult(LiteLLMBaseModel):
+class PerTestingCriteriaResult(BaseModel):
     """Results for a specific testing criteria"""
 
     testing_criteria_index: int
@@ -317,7 +316,7 @@ class PerTestingCriteriaResult(LiteLLMBaseModel):
     """Average score for this criteria"""
 
 
-class Run(LiteLLMBaseModel):
+class Run(BaseModel):
     """Represents a run from the OpenAI Evals API"""
 
     id: str
@@ -372,7 +371,7 @@ class Run(LiteLLMBaseModel):
     """Error details if the run failed"""
 
 
-class ListRunsResponse(LiteLLMBaseModel):
+class ListRunsResponse(BaseModel):
     """Response from listing runs"""
 
     object: str = "list"
@@ -391,7 +390,7 @@ class ListRunsResponse(LiteLLMBaseModel):
     """Whether there are more runs available"""
 
 
-class CancelRunResponse(LiteLLMBaseModel):
+class CancelRunResponse(BaseModel):
     """Response from cancelling a run"""
 
     id: str
@@ -404,7 +403,7 @@ class CancelRunResponse(LiteLLMBaseModel):
     """Status after cancellation, always 'cancelled'"""
 
 
-class RunDeleteResponse(LiteLLMBaseModel):
+class RunDeleteResponse(BaseModel):
     """Response from deleting a run"""
 
     run_id: str

@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Final
 
-from ...shared.reporting.models import SURFACES
+from ...shared.reporting.models import SURFACES, Coverage
 from ...shared.reporting.strategy import (
     CaseDefinition,
     ModuleCaseSpec,
@@ -14,13 +14,20 @@ from .runner import run_e2e_cases
 CASES: Final[tuple[CaseDefinition, ...]] = (
     CaseDefinition(
         "ocr",
-        NotImplementedCaseSpec(reason="OCR has no Python implementation left to compare against."),
+        ModuleCaseSpec(
+            coverage=Coverage.PARTIAL,
+            module="tests.rust-python-harness.strategies.e2e_parity.sdk.ocr.test_sdk_parity",
+            note=(
+                "Recorded sync/async SDK parity with focused success/error callback profiles; "
+                "Reducto lacks a Rust contract, and known provider parity gaps remain."
+            ),
+        ),
         surface="sdk",
     ),
     CaseDefinition(
         "messages",
         NotImplementedCaseSpec(
-            reason="Parity runs as the pytest suite in sdk/messages/test_native_parity.py, not as a runner case."
+            reason="Bridge unit tests exist, but no standalone end-to-end parity case is registered."
         ),
         surface="sdk",
     ),

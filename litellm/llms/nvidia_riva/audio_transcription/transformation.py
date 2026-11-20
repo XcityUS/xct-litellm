@@ -11,11 +11,9 @@ dict at call time.
 Reference: https://docs.nvidia.com/deeplearning/riva/user-guide/docs/asr/asr-overview.html
 """
 
-from collections.abc import Sequence
-from typing import Final, TypedDict
+from typing import Any, Final
 
 from httpx import Headers, Response
-from typing_extensions import ReadOnly
 
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.types.llms.openai import (
@@ -34,17 +32,6 @@ from ..common_utils import NvidiaRivaException
 RIVA_TARGET_SAMPLE_RATE_HZ: Final = 16000
 RIVA_TARGET_NUM_CHANNELS: Final = 1
 RIVA_TARGET_ENCODING: Final = "LINEAR_PCM"
-
-
-class RivaWordTiming(TypedDict):
-    word: ReadOnly[str]
-    start_time_ms: ReadOnly[int]
-    end_time_ms: ReadOnly[int]
-
-
-class RivaFinalResult(TypedDict):
-    transcript: ReadOnly[str]
-    words: ReadOnly[Sequence[RivaWordTiming]]
 
 
 class NvidiaRivaAudioTranscriptionConfig(BaseAudioTranscriptionConfig):
@@ -115,7 +102,7 @@ class NvidiaRivaAudioTranscriptionConfig(BaseAudioTranscriptionConfig):
         if endpointing_config is not None:
             recognition_config["endpointing_config"] = endpointing_config
 
-        request_payload: Final[dict[str, object]] = {
+        request_payload: Final[dict[str, Any]] = {
             "recognition_config": recognition_config,
             "response_format": optional_params.get("response_format") or "json",
             "timestamp_granularities": optional_params.get("timestamp_granularities"),
@@ -148,7 +135,7 @@ class NvidiaRivaAudioTranscriptionConfig(BaseAudioTranscriptionConfig):
         # gRPC auth is constructed in the handler, not via HTTP headers.
         return headers
 
-    def _build_recognition_config_dict(self, model: str, optional_params: dict) -> dict[str, object]:
+    def _build_recognition_config_dict(self, model: str, optional_params: dict) -> dict[str, Any]:
         """
         Build the Riva ``RecognitionConfig`` shape as a plain dict.
 
@@ -172,7 +159,7 @@ class NvidiaRivaAudioTranscriptionConfig(BaseAudioTranscriptionConfig):
             "profanity_filter": optional_params.get("profanity_filter", False),
         }
 
-    def _build_endpointing_config_dict(self, optional_params: dict) -> dict[str, object] | None:
+    def _build_endpointing_config_dict(self, optional_params: dict) -> dict[str, Any] | None:
         """
         Translate an OpenAI-style ``chunking_strategy`` into Riva's
         ``EndpointingConfig`` shape, or pass through an explicit
@@ -190,7 +177,7 @@ class NvidiaRivaAudioTranscriptionConfig(BaseAudioTranscriptionConfig):
             return None
 
         if isinstance(chunking, dict) and chunking.get("type") == "server_vad":
-            config: Final[dict[str, object]] = {}
+            config: Final[dict[str, Any]] = {}
             if "threshold" in chunking:
                 threshold: Final = float(chunking["threshold"])
                 config["start_threshold"] = threshold
@@ -232,7 +219,7 @@ class NvidiaRivaAudioTranscriptionConfig(BaseAudioTranscriptionConfig):
 
     @staticmethod
     def build_transcription_response(
-        final_results: Sequence[RivaFinalResult],
+        final_results: list[dict[str, Any]],
         response_format: str,
         duration_seconds: float | None,
         timestamp_granularities: list[str] | None,
@@ -258,7 +245,7 @@ class NvidiaRivaAudioTranscriptionConfig(BaseAudioTranscriptionConfig):
         response["task"] = "transcribe"
 
         if response_format == "verbose_json":
-            words: Final[list[dict[str, object]]] = []
+            words: Final[list[dict[str, Any]]] = []
             if timestamp_granularities and "word" in timestamp_granularities:
                 for item in final_results:
                     for word in item.get("words", []) or []:

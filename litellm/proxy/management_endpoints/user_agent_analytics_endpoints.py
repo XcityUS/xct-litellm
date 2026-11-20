@@ -16,9 +16,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Final, Protocol, TypeVar, overload
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import TypeAdapter
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, TypeAdapter
 
 if TYPE_CHECKING:
     from prisma.models import LiteLLM_DailyTagSpend as PrismaDailyTagSpendRow
@@ -44,7 +42,7 @@ MAX_TAGS: Final = 250  # Maximum number of distinct tags to return
 router: Final = APIRouter()
 
 
-class TagActiveUsersResponse(LiteLLMBaseModel):
+class TagActiveUsersResponse(BaseModel):
     """Response for tag active users metrics"""
 
     tag: str
@@ -54,13 +52,13 @@ class TagActiveUsersResponse(LiteLLMBaseModel):
     period_end: str | None = None  # For WAU/MAU, this will be the end of the period
 
 
-class ActiveUsersAnalyticsResponse(LiteLLMBaseModel):
+class ActiveUsersAnalyticsResponse(BaseModel):
     """Response for active users analytics"""
 
     results: list[TagActiveUsersResponse]
 
 
-class TagSummaryMetrics(LiteLLMBaseModel):
+class TagSummaryMetrics(BaseModel):
     """Summary metrics for a tag"""
 
     tag: str
@@ -72,25 +70,25 @@ class TagSummaryMetrics(LiteLLMBaseModel):
     total_spend: float
 
 
-class TagSummaryResponse(LiteLLMBaseModel):
+class TagSummaryResponse(BaseModel):
     """Response for tag summary analytics"""
 
     results: list[TagSummaryMetrics]
 
 
-class DistinctTagResponse(LiteLLMBaseModel):
+class DistinctTagResponse(BaseModel):
     """Response for distinct user agent tags"""
 
     tag: str
 
 
-class DistinctTagsResponse(LiteLLMBaseModel):
+class DistinctTagsResponse(BaseModel):
     """Response for all distinct user agent tags"""
 
     results: list[DistinctTagResponse]
 
 
-class PerUserMetrics(LiteLLMBaseModel):
+class PerUserMetrics(BaseModel):
     """Metrics for individual user"""
 
     user_id: str
@@ -103,7 +101,7 @@ class PerUserMetrics(LiteLLMBaseModel):
     spend: float = 0.0
 
 
-class PerUserAnalyticsResponse(LiteLLMBaseModel):
+class PerUserAnalyticsResponse(BaseModel):
     """Response for per-user analytics"""
 
     results: list[PerUserMetrics]
@@ -113,11 +111,11 @@ class PerUserAnalyticsResponse(LiteLLMBaseModel):
     total_pages: int
 
 
-class _DistinctTagRow(LiteLLMBaseModel):
+class _DistinctTagRow(BaseModel):
     tag: str
 
 
-class _ActiveUsersRow(LiteLLMBaseModel):
+class _ActiveUsersRow(BaseModel):
     tag: str
     active_users: int
     date: str
@@ -125,7 +123,7 @@ class _ActiveUsersRow(LiteLLMBaseModel):
     period_end: str | None = None
 
 
-class _TagSummaryRow(LiteLLMBaseModel):
+class _TagSummaryRow(BaseModel):
     tag: str
     unique_users: int | None = None
     total_requests: float | int | str | None = None
@@ -158,9 +156,7 @@ def _typed_table(repo: DailyTagSpendRepository | VerificationTokenRepository | U
 
 
 async def _query_raw(prisma_client: "PrismaClient", sql_query: str, *params: object) -> object:
-    from litellm.proxy.utils import query_raw_rows
-
-    return await query_raw_rows(prisma_client.db, sql_query, *params)
+    return await prisma_client.db.query_raw(sql_query, *params)
 
 
 @router.get(

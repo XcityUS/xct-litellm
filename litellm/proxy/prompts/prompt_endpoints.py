@@ -36,7 +36,6 @@ from litellm.proxy.prompts.prompt_registry import (
     prompt_environment_or_default,
 )
 from litellm.repositories.table_repositories import PromptRepository
-from litellm.types.llms.base import LiteLLMBaseModel
 from litellm.types.prompts.init_prompts import (
     ListPromptsResponse,
     PromptInfo,
@@ -77,7 +76,7 @@ class _PromptRow(Protocol):
     def model_dump(self) -> Mapping[str, object]: ...
 
 
-class _PromptRowData(LiteLLMBaseModel):
+class _PromptRowData(BaseModel):
     prompt_id: str
     version: int = 1
     environment: str = "development"
@@ -191,7 +190,7 @@ def create_versioned_prompt_spec(db_prompt: _PromptRow) -> PromptSpec:
     )
 
 
-class Prompt(LiteLLMBaseModel):
+class Prompt(BaseModel):
     prompt_id: str
     litellm_params: PromptLiteLLMParams
     prompt_info: PromptInfo | None = None
@@ -212,7 +211,7 @@ def is_ambiguous_keyed_prompt_data(litellm_params: PromptLiteLLMParams) -> bool:
     return bool(prompt_data) and "content" not in prompt_data
 
 
-class PatchPromptRequest(LiteLLMBaseModel):
+class PatchPromptRequest(BaseModel):
     litellm_params: PromptLiteLLMParams | None = None
     prompt_info: PromptInfo | None = None
 
@@ -430,15 +429,15 @@ def _get_prompt_template(prompt_spec: PromptSpec, base_prompt_id: str) -> Prompt
         dotprompt_content: Final = prompt_spec.litellm_params.dotprompt_content
         if dotprompt_content:
             from litellm.integrations.dotprompt import (
-                get_prompt_data_from_dotprompt_content,
+                _get_prompt_data_from_dotprompt_content,
             )
 
-            parsed: Final = get_prompt_data_from_dotprompt_content(dotprompt_content)
+            parsed: Final = _get_prompt_data_from_dotprompt_content(dotprompt_content)
             if parsed:
                 return PromptTemplateBase(
                     litellm_prompt_id=base_prompt_id,
-                    content=cast(str, parsed.get("content", "")),
-                    metadata=cast(dict[str, object] | None, parsed.get("metadata")),
+                    content=parsed.get("content", ""),
+                    metadata=parsed.get("metadata"),
                 )
         else:
             prompt_callback: Final = IN_MEMORY_PROMPT_REGISTRY.get_prompt_callback_for_prompt(prompt=prompt_spec)
@@ -1040,6 +1039,7 @@ async def test_prompt(
         }'
     ```
     """
+    from pydantic import BaseModel
 
     from litellm.integrations.dotprompt.dotprompt_manager import DotpromptManager
     from litellm.integrations.dotprompt.prompt_manager import (
@@ -1064,7 +1064,7 @@ async def test_prompt(
     try:
         # Parse the dotprompt content and create PromptTemplate
         prompt_manager: Final = PromptManager()
-        frontmatter, template_content = prompt_manager.parse_frontmatter(content=request.dotprompt_content)
+        frontmatter, template_content = prompt_manager._parse_frontmatter(content=request.dotprompt_content)
 
         # Create PromptTemplate to leverage existing parameter extraction logic
         template: Final = PromptTemplate(content=template_content, metadata=frontmatter, template_id="test_prompt")
@@ -1111,7 +1111,6 @@ async def test_prompt(
             general_settings=general_settings,
             llm_router=llm_router,
             model=data.get("model", ""),
-            team_id=user_api_key_dict.team_id,
         )
 
         # Use ProxyBaseLLMRequestProcessing to go through all proxy logic

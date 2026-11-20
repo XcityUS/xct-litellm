@@ -33,9 +33,9 @@ Usage:
 
 import asyncio
 import contextvars
-from collections.abc import AsyncIterator, Coroutine, Iterator, Mapping
+from collections.abc import AsyncIterator, Coroutine, Iterator
 from functools import partial
-from typing import Final
+from typing import Any, Final
 
 import httpx
 
@@ -49,7 +49,6 @@ from litellm.interactions.utils import (
     InteractionsAPIRequestUtils,
     get_provider_interactions_api_config,
 )
-from litellm.litellm_core_utils.core_helpers import drops_unsupported_params
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
 from litellm.types.interactions import (
     CancelInteractionResult,
@@ -80,7 +79,7 @@ async def acreate(
     # System instruction
     system_instruction: str | None = None,
     # Generation config
-    generation_config: Mapping[str, object] | None = None,
+    generation_config: dict[str, Any] | None = None,
     # Streaming
     stream: bool | None = None,
     # Storage
@@ -91,19 +90,16 @@ async def acreate(
     environment: InteractionEnvironment | None = None,
     # Response format
     response_modalities: list[str] | None = None,
-    response_format: Mapping[str, object] | None = None,
+    response_format: dict[str, Any] | None = None,
     response_mime_type: str | None = None,
     # Continuation
     previous_interaction_id: str | None = None,
-    continuation_token: str | None = None,
     # Extra params
-    extra_headers: dict[str, str] | None = None,
-    extra_body: Mapping[str, object] | None = None,
+    extra_headers: dict[str, Any] | None = None,
+    extra_body: dict[str, Any] | None = None,
     timeout: float | httpx.Timeout | None = None,
     # LiteLLM params
     custom_llm_provider: str | None = None,
-    *,
-    agent_config: Mapping[str, object] | None = None,
     **kwargs,
 ) -> InteractionsAPIResponse | AsyncIterator[InteractionsAPIStreamingResponse]:
     """
@@ -125,12 +121,10 @@ async def acreate(
             string, or a config object such as
             ``{"type": "remote", "sources": [...]}`` /
             ``{"type": "remote", "network": {...}}``
-        agent_config: Agent runtime config, e.g. ``{"type": "antigravity", "model": "gemini-3.8-flash"}``
         response_modalities: Requested response modalities (TEXT, IMAGE, AUDIO)
         response_format: JSON schema for response format
         response_mime_type: MIME type of the response
         previous_interaction_id: ID of previous interaction for continuation
-        continuation_token: Token from a `requires_continuation` interaction to resume its long decode
         extra_headers: Additional headers
         extra_body: Additional body parameters
         timeout: Request timeout
@@ -161,12 +155,10 @@ async def acreate(
             store=store,
             background=background,
             environment=environment,
-            agent_config=agent_config,
             response_modalities=response_modalities,
             response_format=response_format,
             response_mime_type=response_mime_type,
             previous_interaction_id=previous_interaction_id,
-            continuation_token=continuation_token,
             extra_headers=extra_headers,
             extra_body=extra_body,
             timeout=timeout,
@@ -183,7 +175,7 @@ async def acreate(
         else:
             response = init_response
 
-        await maybe_schedule_background_interaction_cost_polling(
+        maybe_schedule_background_interaction_cost_polling(
             response=response,
             create_kwargs=kwargs,
             custom_llm_provider=custom_llm_provider,
@@ -212,7 +204,7 @@ def create(
     # System instruction
     system_instruction: str | None = None,
     # Generation config
-    generation_config: Mapping[str, object] | None = None,
+    generation_config: dict[str, Any] | None = None,
     # Streaming
     stream: bool | None = None,
     # Storage
@@ -223,19 +215,16 @@ def create(
     environment: InteractionEnvironment | None = None,
     # Response format
     response_modalities: list[str] | None = None,
-    response_format: Mapping[str, object] | None = None,
+    response_format: dict[str, Any] | None = None,
     response_mime_type: str | None = None,
     # Continuation
     previous_interaction_id: str | None = None,
-    continuation_token: str | None = None,
     # Extra params
-    extra_headers: dict[str, str] | None = None,
-    extra_body: Mapping[str, object] | None = None,
+    extra_headers: dict[str, Any] | None = None,
+    extra_body: dict[str, Any] | None = None,
     timeout: float | httpx.Timeout | None = None,
     # LiteLLM params
     custom_llm_provider: str | None = None,
-    *,
-    agent_config: Mapping[str, object] | None = None,
     **kwargs,
 ) -> (
     InteractionsAPIResponse
@@ -261,12 +250,10 @@ def create(
             string, or a config object such as
             ``{"type": "remote", "sources": [...]}`` /
             ``{"type": "remote", "network": {...}}``
-        agent_config: Agent runtime config, e.g. ``{"type": "antigravity", "model": "gemini-3.8-flash"}``
         response_modalities: Requested response modalities (TEXT, IMAGE, AUDIO)
         response_format: JSON schema for response format
         response_mime_type: MIME type of the response
         previous_interaction_id: ID of previous interaction for continuation
-        continuation_token: Token from a `requires_continuation` interaction to resume its long decode
         extra_headers: Additional headers
         extra_body: Additional body parameters
         timeout: Request timeout
@@ -300,26 +287,6 @@ def create(
             )
         else:
             custom_llm_provider = custom_llm_provider or "gemini"
-        if agent and model and model != agent:
-            raise litellm.BadRequestError(
-                message=(
-                    f"agent '{agent}' can only run on a deployment of that agent, but the model is '{model}'. "
-                    "Configure a deployment whose model is the agent and send its model group."
-                ),
-                model=model,
-                llm_provider=custom_llm_provider,
-            )
-        if extra_body and (
-            ("agent" in extra_body and extra_body["agent"] != agent) or (agent and "model" in extra_body)
-        ):
-            raise litellm.BadRequestError(
-                message=(
-                    "extra_body cannot set a different agent or add a model to an agent interaction. "
-                    "Send the agent and model as top-level fields."
-                ),
-                model=model,
-                llm_provider=custom_llm_provider,
-            )
 
         interactions_api_config: Final = get_provider_interactions_api_config(
             provider=custom_llm_provider,
@@ -333,15 +300,6 @@ def create(
         # Check if this is a bridge provider (litellm_responses) - similar to responses API
         # Either provider is explicitly "litellm_responses" or no config found (bridge to responses)
         if custom_llm_provider == "litellm_responses" or interactions_api_config is None:
-            if optional_params.get("agent_config") is not None and not drops_unsupported_params(
-                kwargs.get("drop_params")
-            ):
-                raise litellm.UnsupportedParamsError(
-                    message=f"'agent_config' is not supported for {custom_llm_provider} interactions. "
-                    "Set drop_params to drop it.",
-                    llm_provider=custom_llm_provider,
-                    model=model,
-                )
             # Bridge to litellm.responses() for non-native providers
             from litellm.interactions.litellm_responses_transformation.handler import (
                 LiteLLMResponsesInteractionsHandler,
@@ -360,7 +318,7 @@ def create(
 
         litellm_logging_obj.update_from_kwargs(
             kwargs=kwargs,
-            model=agent or model,
+            model=model,
             optional_params=dict(optional_params),
             litellm_params={"litellm_call_id": litellm_call_id},
             custom_llm_provider=custom_llm_provider,
@@ -401,7 +359,7 @@ def create(
 @client
 async def aget(
     interaction_id: str,
-    extra_headers: dict[str, str] | None = None,
+    extra_headers: dict[str, Any] | None = None,
     timeout: float | httpx.Timeout | None = None,
     custom_llm_provider: str | None = None,
     **kwargs,
@@ -444,7 +402,7 @@ async def aget(
 @client
 def get(
     interaction_id: str,
-    extra_headers: dict[str, str] | None = None,
+    extra_headers: dict[str, Any] | None = None,
     timeout: float | httpx.Timeout | None = None,
     custom_llm_provider: str | None = None,
     **kwargs,
@@ -503,10 +461,10 @@ def get(
 @client
 async def adelete(
     interaction_id: str,
-    extra_headers: dict[str, str] | None = None,
+    extra_headers: dict[str, Any] | None = None,
     timeout: float | httpx.Timeout | None = None,
     custom_llm_provider: str | None = None,
-    **kwargs: object,
+    **kwargs,
 ) -> DeleteInteractionResult:
     """Async: Delete an interaction by its ID."""
     local_vars: Final = locals()
@@ -514,7 +472,7 @@ async def adelete(
         loop: Final = asyncio.get_event_loop()
         kwargs["adelete_interaction"] = True
 
-        await maybe_settle_background_interaction_before_delete(interaction_id=interaction_id, delete_kwargs=kwargs)
+        await maybe_settle_background_interaction_before_delete(interaction_id=interaction_id)
 
         func: Final = partial(
             delete,
@@ -548,7 +506,7 @@ async def adelete(
 @client
 def delete(
     interaction_id: str,
-    extra_headers: dict[str, str] | None = None,
+    extra_headers: dict[str, Any] | None = None,
     timeout: float | httpx.Timeout | None = None,
     custom_llm_provider: str | None = None,
     **kwargs,
@@ -607,7 +565,7 @@ def delete(
 @client
 async def acancel(
     interaction_id: str,
-    extra_headers: dict[str, str] | None = None,
+    extra_headers: dict[str, Any] | None = None,
     timeout: float | httpx.Timeout | None = None,
     custom_llm_provider: str | None = None,
     **kwargs,
@@ -650,7 +608,7 @@ async def acancel(
 @client
 def cancel(
     interaction_id: str,
-    extra_headers: dict[str, str] | None = None,
+    extra_headers: dict[str, Any] | None = None,
     timeout: float | httpx.Timeout | None = None,
     custom_llm_provider: str | None = None,
     **kwargs,

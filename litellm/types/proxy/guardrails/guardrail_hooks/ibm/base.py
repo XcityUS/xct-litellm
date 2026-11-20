@@ -1,9 +1,7 @@
-from pydantic import Field
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, Field
 
 
-class IBMGuardrailsBaseConfigModel(LiteLLMBaseModel):
+class IBMGuardrailsBaseConfigModel(BaseModel):
     """Base configuration parameters for IBM Guardrails"""
 
     auth_token: str | None = Field(

@@ -1,7 +1,7 @@
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel
 
 
-class AnthropicMetadata(LiteLLMBaseModel):
+class AnthropicMetadata(BaseModel):
     """
     Object with allowed fields for Anthropic API metadata
 

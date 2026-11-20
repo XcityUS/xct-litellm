@@ -1,14 +1,12 @@
 # Tool Permission Guardrail Type Definitions
 from typing import Final, Literal
 
-from pydantic import Field, field_validator, model_validator
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .base import GuardrailConfigModel
 
 
-class ToolPermissionRule(LiteLLMBaseModel):
+class ToolPermissionRule(BaseModel):
     """
     A rule defining permission for a specific tool or tool pattern
     """
@@ -16,7 +14,7 @@ class ToolPermissionRule(LiteLLMBaseModel):
     id: str = Field(description="Unique identifier for the rule")
     tool_name: str | None = Field(
         default=None,
-        description="Regex pattern applied to the tool's name, or to its type when the tool has no name",
+        description="Regex pattern applied to the tool's function name",
     )
     tool_type: str | None = Field(
         default=None,
@@ -55,7 +53,7 @@ class ToolPermissionRule(LiteLLMBaseModel):
         return self
 
 
-class ToolResult(LiteLLMBaseModel):
+class ToolResult(BaseModel):
     """
     Represents a tool_result block to be added to the response
     """
@@ -66,7 +64,7 @@ class ToolResult(LiteLLMBaseModel):
     is_error: bool = Field(default=True, description="Whether this is an error result")
 
 
-class PermissionError(LiteLLMBaseModel):
+class PermissionError(BaseModel):
     """
     Error information for permission denial
     """

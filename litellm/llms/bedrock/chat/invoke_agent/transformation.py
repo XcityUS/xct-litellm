@@ -15,11 +15,10 @@ from litellm._uuid import uuid
 from litellm.litellm_core_utils.prompt_templates.common_utils import (
     convert_content_list_to_str,
 )
-from litellm.litellm_core_utils.url_utils import encode_url_path_segment, join_api_base
+from litellm.litellm_core_utils.url_utils import encode_url_path_segment
 from litellm.llms.base_llm.chat.transformation import BaseConfig, BaseLLMException
 from litellm.llms.bedrock.base_aws_llm import BaseAWSLLM
 from litellm.llms.bedrock.common_utils import BedrockError
-from litellm.types.llms.bedrock import AWS_AUTH_PARAM_KEYS
 from litellm.types.llms.bedrock_invoke_agents import (
     InvokeAgentChunkPayload,
     InvokeAgentEvent,
@@ -38,8 +37,9 @@ from litellm.types.llms.openai import AllMessageValues
 from litellm.types.utils import Choices, Message, ModelResponse
 
 if TYPE_CHECKING:
+    import tiktoken
+
     from litellm.litellm_core_utils.litellm_logging import Logging as _LiteLLMLoggingObj
-    from litellm.litellm_core_utils.tokenizer import Encoding as Tokenizer
 
     LiteLLMLoggingObj = _LiteLLMLoggingObj
 else:
@@ -102,10 +102,9 @@ class AmazonInvokeAgentConfig(BaseConfig, BaseAWSLLM):
         encoded_agent_alias_id: Final = encode_url_path_segment(agent_alias_id, field_name="agent_alias_id")
         encoded_session_id: Final = encode_url_path_segment(session_id, field_name="session_id")
 
-        return join_api_base(
-            endpoint_url,
-            f"agents/{encoded_agent_id}/agentAliases/{encoded_agent_alias_id}/sessions/{encoded_session_id}/text",
-        )
+        endpoint_url = f"{endpoint_url}/agents/{encoded_agent_id}/agentAliases/{encoded_agent_alias_id}/sessions/{encoded_session_id}/text"
+
+        return endpoint_url
 
     def sign_request(
         self,
@@ -160,7 +159,7 @@ class AmazonInvokeAgentConfig(BaseConfig, BaseAWSLLM):
         return {
             "inputText": query,
             "enableTrace": True,
-            **{key: value for key, value in optional_params.items() if key not in AWS_AUTH_PARAM_KEYS},
+            **optional_params,
         }
 
     def _parse_aws_event_stream(self, raw_content: bytes) -> InvokeAgentEventList:
@@ -439,7 +438,7 @@ class AmazonInvokeAgentConfig(BaseConfig, BaseAWSLLM):
         messages: list[AllMessageValues],
         optional_params: dict,
         litellm_params: dict,
-        encoding: "Tokenizer | None",
+        encoding: "tiktoken.Encoding | None",
         api_key: str | None = None,
         json_mode: bool | None = None,
     ) -> ModelResponse:

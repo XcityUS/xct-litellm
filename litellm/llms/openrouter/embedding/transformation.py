@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, Final
 
 import httpx
 
-from litellm.litellm_core_utils.url_utils import join_api_base
 from litellm.llms.base_llm.embedding.transformation import BaseEmbeddingConfig
 from litellm.types.llms.openai import AllEmbeddingInputValues
 from litellm.types.utils import EmbeddingResponse
@@ -85,7 +84,15 @@ class OpenrouterEmbeddingConfig(BaseEmbeddingConfig):
         """
         Get the complete URL for OpenRouter Embedding API endpoint.
         """
-        return join_api_base(api_base or "https://openrouter.ai/api/v1", "embeddings")
+        # api_base is already set to https://openrouter.ai/api/v1 in main.py
+        # Remove trailing slashes
+        if api_base:
+            api_base = api_base.rstrip("/")
+        else:
+            api_base = "https://openrouter.ai/api/v1"
+
+        # Return the embeddings endpoint
+        return f"{api_base}/embeddings"
 
     def transform_embedding_request(
         self,
@@ -163,9 +170,7 @@ class OpenrouterEmbeddingConfig(BaseEmbeddingConfig):
                 optional_params[param] = value
         return optional_params
 
-    def get_error_class(
-        self, error_message: str, status_code: int, headers: dict[str, str] | httpx.Headers
-    ) -> OpenRouterException:
+    def get_error_class(self, error_message: str, status_code: int, headers: Any) -> Any:
         """
         Get the error class for OpenRouter errors.
         """

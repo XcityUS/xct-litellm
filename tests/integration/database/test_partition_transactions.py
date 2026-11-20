@@ -51,11 +51,10 @@ async def test_real_partition_ddl_survives_witnessed_lock_and_is_idempotent() ->
                     operation: Final = asyncio.create_task(
                         manager.ensure_partitions(PartitionConnection(database), lambda: 7000)
                     )
-                    wait_deadline: Final = time.monotonic() + 10
+                    wait_deadline: Final = time.monotonic() + 3
                     try:
                         while True:
-                            witnesses: Final = await asyncio.to_thread(
-                                read_rows,
+                            witnesses: Final = read_rows(
                                 "SELECT a.pid, extract(epoch FROM "
                                 "clock_timestamp()-a.query_start)::double precision AS age "
                                 "FROM pg_stat_activity a WHERE %s = ANY(pg_blocking_pids(a.pid)) "

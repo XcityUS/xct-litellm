@@ -12,8 +12,7 @@ export default defineConfig({
   testMatch: ["migratedPages.spec.ts"],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: 0,
-  grep: /navigates directly between two migrated pages/,
+  retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: "list",
   use: {

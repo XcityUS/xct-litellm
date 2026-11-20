@@ -1,13 +1,9 @@
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from enum import Enum
-from typing import Final, Literal, TypeAlias
+from typing import Any, Final, Literal, TypeAlias
 
-from openai.types.responses.response_function_web_search import ResponseFunctionWebSearch
-from pydantic import ConfigDict
+from pydantic import BaseModel, ConfigDict
 from typing_extensions import NotRequired, ReadOnly, Required, TypedDict
-
-from litellm.types.llms.base import LiteLLMBaseModel
-from litellm.types.responses.main import hosted_web_tool_call, web_search_call_tool_id
 
 from .openai import (
     ChatCompletionCachedContent,
@@ -59,8 +55,7 @@ class AnthropicMessagesTool(TypedDict, total=False):
     cache_control: dict | ChatCompletionCachedContent | None
     defer_loading: bool
     allowed_callers: list[str] | None
-    input_examples: list[dict[str, object]] | None
-    eager_input_streaming: ReadOnly[bool]
+    input_examples: list[dict[str, Any]] | None
 
 
 class AnthropicComputerTool(TypedDict, total=False):
@@ -88,7 +83,7 @@ class AnthropicWebSearchTool(TypedDict, total=False):
     user_location: AnthropicWebSearchUserLocation | None
     defer_loading: bool | None
     allowed_callers: list[str] | None
-    input_examples: list[dict[str, object]] | None
+    input_examples: list[dict[str, Any]] | None
 
 
 class AnthropicHostedTools(TypedDict, total=False):  # for bash_tool and text_editor
@@ -97,7 +92,7 @@ class AnthropicHostedTools(TypedDict, total=False):  # for bash_tool and text_ed
     cache_control: dict | ChatCompletionCachedContent | None
     defer_loading: bool | None
     allowed_callers: list[str] | None
-    input_examples: list[dict[str, object]] | None
+    input_examples: list[dict[str, Any]] | None
 
 
 class AnthropicCodeExecutionTool(TypedDict, total=False):
@@ -106,7 +101,7 @@ class AnthropicCodeExecutionTool(TypedDict, total=False):
     cache_control: dict | ChatCompletionCachedContent | None
     defer_loading: bool | None
     allowed_callers: list[str] | None
-    input_examples: list[dict[str, object]] | None
+    input_examples: list[dict[str, Any]] | None
 
 
 class AnthropicMemoryTool(TypedDict, total=False):
@@ -115,7 +110,7 @@ class AnthropicMemoryTool(TypedDict, total=False):
     cache_control: dict | ChatCompletionCachedContent | None
     defer_loading: bool | None
     allowed_callers: list[str] | None
-    input_examples: list[dict[str, object]] | None
+    input_examples: list[dict[str, Any]] | None
 
 
 class AnthropicToolSearchToolRegex(TypedDict, total=False):
@@ -133,7 +128,7 @@ class AnthropicToolSearchToolBM25(TypedDict, total=False):
     cache_control: dict | ChatCompletionCachedContent | None
     defer_loading: bool | None
     allowed_callers: list[str] | None
-    input_examples: list[dict[str, object]] | None
+    input_examples: list[dict[str, Any]] | None
 
 
 ANTHROPIC_ADVISOR_TOOL_TYPE: Final = "advisor_20260301"
@@ -154,36 +149,6 @@ class ToolReference(TypedDict, total=False):
 
     type: Required[Literal["tool_reference"]]
     tool_name: Required[str]
-
-
-class AnthropicToolReferenceBlock(LiteLLMBaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    type: Literal["tool_reference"] = "tool_reference"
-    tool_name: str
-
-
-class AnthropicToolSearchResultContent(LiteLLMBaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    type: str
-    tool_references: tuple[AnthropicToolReferenceBlock, ...] = ()
-
-
-class AnthropicToolSearchToolResultBlock(LiteLLMBaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    type: Literal["tool_search_tool_result"] = "tool_search_tool_result"
-    tool_use_id: str
-    content: AnthropicToolSearchResultContent
-
-    @property
-    def found_tools(self) -> bool:
-        return self.content.type == ANTHROPIC_TOOL_SEARCH_RESULT_CONTENT_TYPE
-
-    @property
-    def tool_names(self) -> tuple[str, ...]:
-        return tuple(reference.tool_name for reference in self.content.tool_references)
 
 
 class DirectToolCaller(TypedDict, total=False):
@@ -241,13 +206,6 @@ class AnthropicMessagesTextParam(TypedDict, total=False):
     prompt_cache_breakpoint: ReadOnly[PromptCacheBreakpoint]
 
 
-class AnthropicSearchResultParam(TypedDict, total=False):
-    type: Required[ReadOnly[Literal["search_result"]]]
-    source: Required[ReadOnly[str]]
-    title: Required[ReadOnly[str]]
-    content: Required[ReadOnly[Iterable[AnthropicMessagesTextParam]]]
-
-
 class AnthropicMessagesToolUseParam(TypedDict, total=False):
     type: Required[Literal["tool_use"]]
     id: str
@@ -257,20 +215,11 @@ class AnthropicMessagesToolUseParam(TypedDict, total=False):
     caller: ToolCaller | None
 
 
-class CompactionBlock(TypedDict, total=False):
-    """Native compaction block, signed for on-demand compaction."""
-
-    type: Required[ReadOnly[Literal["compaction"]]]
-    content: ReadOnly[str | None]
-    signature: ReadOnly[str]
-
-
 AnthropicMessagesAssistantMessageValues = (
     AnthropicMessagesTextParam
     | AnthropicMessagesToolUseParam
     | ChatCompletionThinkingBlock
     | ChatCompletionRedactedThinkingBlock
-    | CompactionBlock
 )
 
 
@@ -396,7 +345,6 @@ class AnthropicMessagesToolResultParam(TypedDict, total=False):
             AnthropicMessagesToolResultContent
             | AnthropicMessagesImageParam
             | AnthropicMessagesDocumentParam
-            | AnthropicSearchResultParam
             | ToolReference
         ]
     )
@@ -408,7 +356,6 @@ AnthropicMessagesUserMessageValues = (
     | AnthropicMessagesImageParam
     | AnthropicMessagesToolResultParam
     | AnthropicMessagesDocumentParam
-    | AnthropicSearchResultParam
     | AnthropicMessagesContainerUploadParam
 )
 
@@ -436,24 +383,10 @@ class AnthropicMessagesSystemMessageParam(TypedDict, total=False):
 
 AllAnthropicMessageValues = AnthropicMessagesUserMessageParam | AnthopicMessagesAssistantMessageParam
 
-# role=system inside messages is accepted after a user turn on models flagged
-# supports_mid_conversation_system; pass-through adapters and the chat translator both emit it.
+# System is not a native Anthropic message role; only pass-through adapters use this union.
 AllAnthropicPassThroughMessageValues: TypeAlias = (
     AnthropicMessagesUserMessageParam | AnthopicMessagesAssistantMessageParam | AnthropicMessagesSystemMessageParam
 )
-
-
-class AnthropicCompaction(TypedDict, total=False):
-    type: Required[ReadOnly[Literal["summarize"]]]
-    instructions: ReadOnly[str]
-
-
-class AnthropicMessageThread(TypedDict, total=False):
-    """``thread`` body field of the message-threads beta: ``{"type": "create"}`` opens a server-side
-    thread, ``{"type": "continue", "previous_message_id": "msg_..."}`` appends only the new messages to it."""
-
-    type: Required[ReadOnly[Literal["create", "continue"]]]
-    previous_message_id: ReadOnly[str]
 
 
 class AnthropicMessagesRequestOptionalParams(TypedDict, total=False):
@@ -470,17 +403,13 @@ class AnthropicMessagesRequestOptionalParams(TypedDict, total=False):
     inference_geo: str | None
     top_p: float | None
     mcp_servers: list[AnthropicMcpServerTool] | None
-    context_management: dict[str, object] | None
-    compaction: ReadOnly[AnthropicCompaction | None]
-    container: dict[str, object] | None  # Container config with skills for code execution
+    context_management: dict[str, Any] | None
+    container: dict[str, Any] | None  # Container config with skills for code execution
     output_format: AnthropicOutputSchema | None  # Structured outputs support
     speed: str | None  # Fast mode support for Opus models
     output_config: AnthropicOutputConfig | None  # Configuration for Claude's output behavior
-    cache_control: dict[str, object] | None  # Automatic prompt caching
+    cache_control: dict[str, Any] | None  # Automatic prompt caching
     reasoning_effort: str | None
-    safeguards: ReadOnly[list[dict[str, object]] | None]
-    service_tier: ReadOnly[str | None]
-    thread: ReadOnly[AnthropicMessageThread | None]
 
 
 class AnthropicMessagesRequest(AnthropicMessagesRequestOptionalParams, total=False):
@@ -531,11 +460,6 @@ class ContentThinkingSignatureBlockDelta(TypedDict):
     signature: str
 
 
-class ContentCompactionBlockDelta(TypedDict):
-    type: ReadOnly[Literal["compaction_delta"]]
-    content: ReadOnly[str | None]
-
-
 StreamingContentBlockDeltaType = Literal["text_delta", "input_json_delta", "thinking_delta", "signature_delta"]
 
 
@@ -548,7 +472,6 @@ class ContentBlockDelta(TypedDict):
         | ContentCitationsBlockDelta
         | ContentThinkingBlockDelta
         | ContentThinkingSignatureBlockDelta
-        | ContentCompactionBlockDelta
     )
 
 
@@ -592,9 +515,7 @@ class ContentBlockStartText(TypedDict):
     content_block: TextBlock
 
 
-ContentBlockContentBlockDict = (
-    ToolUseBlock | TextBlock | ChatCompletionThinkingBlock | ChatCompletionRedactedThinkingBlock
-)
+ContentBlockContentBlockDict = ToolUseBlock | TextBlock | ChatCompletionThinkingBlock
 
 ContentBlockStart = ContentBlockStartToolUse | ContentBlockStartText
 
@@ -605,38 +526,9 @@ class AnthropicStopDetails(TypedDict, total=False):
     explanation: ReadOnly[str | None]
 
 
-class SafeguardToolUseEvaluated(TypedDict):
-    type: ReadOnly[Literal["evaluated"]]
-    outcome: ReadOnly[Literal["flagged", "not_flagged"]]
-    explanation: NotRequired[ReadOnly[str]]
-
-
-class SafeguardToolUseUnavailable(TypedDict):
-    type: ReadOnly[Literal["unavailable"]]
-    reason: ReadOnly[Literal["timeout", "error", "refused", "input_too_long", "truncated"]]
-
-
-SafeguardToolUseVerdict: TypeAlias = SafeguardToolUseEvaluated | SafeguardToolUseUnavailable
-
-
-class SafeguardStatusAvailable(TypedDict):
-    type: ReadOnly[Literal["available"]]
-    tool_uses: ReadOnly[Mapping[str, SafeguardToolUseVerdict]]
-
-
-class SafeguardStatusUnsupported(TypedDict):
-    type: ReadOnly[Literal["unsupported"]]
-
-
-class SafeguardResult(TypedDict):
-    type: ReadOnly[Literal["dangerous_tool_use"]]
-    status: ReadOnly[SafeguardStatusAvailable | SafeguardStatusUnsupported]
-
-
 class MessageDelta(TypedDict, total=False):
     stop_reason: str | None
     stop_details: ReadOnly[AnthropicStopDetails]
-    safeguard_results: ReadOnly[Sequence[SafeguardResult]]
 
 
 class ServerToolUsage(TypedDict, total=False):
@@ -671,6 +563,13 @@ class ContextManagementResponse(TypedDict, total=False):
     applied_edits: list[AppliedEdit]
 
 
+class CompactionBlock(TypedDict, total=False):
+    """Synthesized ``compaction`` content block (compact_20260112)."""
+
+    type: Required[Literal["compaction"]]
+    content: str | None
+
+
 class UsageIteration(TypedDict, total=False):
     """One sampling iteration's token usage (compact_20260112)."""
 
@@ -700,8 +599,6 @@ class MessageChunk(TypedDict, total=False):
     stop_reason: str | None
     stop_sequence: str | None
     usage: UsageDelta
-    safeguard_results: ReadOnly[Sequence[SafeguardResult]]
-    input_transformations: ReadOnly[Sequence[Mapping[str, object]]]
 
 
 class MessageStartBlock(TypedDict):
@@ -729,76 +626,49 @@ class MessageStartBlock(TypedDict):
     message: MessageChunk
 
 
-class AnthropicResponseContentBlockText(LiteLLMBaseModel):
+class AnthropicResponseContentBlockText(BaseModel):
     type: Literal["text"]
     text: str
 
 
-class AnthropicResponseContentBlockToolUse(LiteLLMBaseModel):
+class AnthropicResponseContentBlockToolUse(BaseModel):
     type: Literal["tool_use"]
     id: str
     name: str
     input: dict
-    provider_specific_fields: dict[str, object] | None = None
+    provider_specific_fields: dict[str, Any] | None = None
 
     model_config = ConfigDict(extra="allow")  # Allow provider_specific_fields
 
 
-class AnthropicResponseContentBlockThinking(LiteLLMBaseModel):
+class AnthropicResponseContentBlockThinking(BaseModel):
     type: Literal["thinking"]
     thinking: str
     signature: str | None
 
 
-class AnthropicResponseContentBlockRedactedThinking(LiteLLMBaseModel):
+class AnthropicResponseContentBlockRedactedThinking(BaseModel):
     type: Literal["redacted_thinking"]
     data: str
 
 
-class AnthropicResponseContentBlockCompaction(LiteLLMBaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    type: Literal["compaction"]
-    content: str | None = None
-    signature: str | None = None
-
-
-class AnthropicResponseContentBlockServerToolUse(LiteLLMBaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    type: Literal["server_tool_use"]
-    id: str
-    name: str
-    input: Mapping[str, object]
-
-
-class AnthropicResponseContentBlockWebSearchToolResult(LiteLLMBaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    type: Literal["web_search_tool_result"]
-    tool_use_id: str
-    content: Sequence[Mapping[str, object]] | Mapping[str, object]
-
-
-class AnthropicResponseUsageBlock(LiteLLMBaseModel):
+class AnthropicResponseUsageBlock(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     input_tokens: int
     output_tokens: int
 
 
-class AnthropicOutputTokensDetails(LiteLLMBaseModel):
+class AnthropicOutputTokensDetails(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     thinking_tokens: int | None = None
 
 
-AnthropicFinishReason = Literal[
-    "end_turn", "max_tokens", "stop_sequence", "tool_use", "refusal", "pause_turn", "compaction"
-]
+AnthropicFinishReason = Literal["end_turn", "max_tokens", "stop_sequence", "tool_use", "refusal"]
 
 
-class AnthropicResponse(LiteLLMBaseModel):
+class AnthropicResponse(BaseModel):
     id: str
     """Unique object identifier."""
 
@@ -813,9 +683,6 @@ class AnthropicResponse(LiteLLMBaseModel):
         | AnthropicResponseContentBlockToolUse
         | AnthropicResponseContentBlockThinking
         | AnthropicResponseContentBlockRedactedThinking
-        | AnthropicResponseContentBlockCompaction
-        | AnthropicResponseContentBlockServerToolUse
-        | AnthropicResponseContentBlockWebSearchToolResult
     ]
     """Content generated by the model."""
 
@@ -850,18 +717,10 @@ ANTHROPIC_API_ONLY_HEADERS: Final = {  # fails if calling anthropic on vertex ai
 }
 
 
-class AnthropicThinkingBlockBinding(TypedDict, total=False):
-    prefix_mismatch_behavior: ReadOnly[Literal["error", "drop_block"]]
-
-
 class AnthropicThinkingParam(TypedDict, total=False):
     type: ReadOnly[Literal["enabled", "adaptive", "disabled"]]
     budget_tokens: int
-    display: ReadOnly[Literal["summarized", "omitted", "updates"]]
-    block_binding: ReadOnly[AnthropicThinkingBlockBinding]
-
-
-LEGACY_THINKING_DISPLAY_UPDATES_PROVIDERS: Final = frozenset(("anthropic", "azure_ai", "vertex_ai"))
+    display: ReadOnly[Literal["summarized", "omitted"]]
 
 
 class ANTHROPIC_HOSTED_TOOLS(str, Enum):
@@ -883,54 +742,21 @@ class ANTHROPIC_BETA_HEADER_VALUES(str, Enum):
     WEB_SEARCH_2025_03_05 = "web-search-2025-03-05"
     CONTEXT_MANAGEMENT_2025_06_27 = "context-management-2025-06-27"
     COMPACT_2026_01_12 = "compact-2026-01-12"
-    COMPACT_2026_09_04 = "compact-2026-09-04"
-    INLINE_TOOLS_2026_09_15 = "inline-tools-2026-09-15"
     STRUCTURED_OUTPUT_2025_09_25 = "structured-outputs-2025-11-13"
     ADVANCED_TOOL_USE_2025_11_20 = "advanced-tool-use-2025-11-20"
     FAST_MODE_2026_02_01 = "fast-mode-2026-02-01"
     ADVISOR_TOOL_2026_03_01 = "advisor-tool-2026-03-01"
     PER_TURN_CONTROL_2026_07_01 = "per-turn-control-2026-07-01"
-    DANGEROUS_TOOL_USE_2026_09_03 = "dangerous-tool-use-2026-09-03"
-    MCP_CLIENT_2025_04_04 = "mcp-client-2025-04-04"
-    MESSAGE_THREADS_2026_08_12 = "message-threads-2026-08-12"
 
 
 # Tool search beta header constant (for Anthropic direct API and Microsoft Foundry)
 ANTHROPIC_TOOL_SEARCH_BETA_HEADER: Final = "advanced-tool-use-2025-11-20"
 
-ANTHROPIC_TOOL_SEARCH_TOOL_TYPES: Final = frozenset(
-    {"tool_search_tool_regex_20251119", "tool_search_tool_bm25_20251119"}
-)
-ANTHROPIC_TOOL_SEARCH_TOOL_NAMES: Final = frozenset({"tool_search_tool_regex", "tool_search_tool_bm25"})
-ANTHROPIC_SERVER_TOOL_USE_ID_PREFIX: Final = "srvtoolu_"
-ANTHROPIC_TOOL_SEARCH_RESULT_CONTENT_TYPE: Final = "tool_search_tool_search_result"
-
-
-def claude_hosted_web_tool_call(search: ResponseFunctionWebSearch) -> tuple[str, str, str] | None:
-    tool_id: Final = web_search_call_tool_id(search.id)
-    if tool_id is None or not tool_id.startswith(ANTHROPIC_SERVER_TOOL_USE_ID_PREFIX):
-        return None
-    hosted_call: Final = hosted_web_tool_call(search.action)
-    return None if hosted_call is None else (tool_id, *hosted_call)
-
-
 # Effort beta header constant
 ANTHROPIC_EFFORT_BETA_HEADER: Final = "effort-2025-11-24"
-
-ANTHROPIC_MID_CONVERSATION_OUTPUT_CONFIG_BETA_HEADER: Final = "mid-conversation-output-config-2026-07-01"
-
-ANTHROPIC_THINKING_DISPLAY_UPDATES_BETA_HEADER: Final = "thinking-display-updates-2026-08-18"
-
-MESSAGE_THREAD_NOT_FOUND_ERROR_CODE: Final = "thread_not_found"
-MESSAGE_THREAD_UNSUPPORTED_ERROR_CODE: Final = "thread_unsupported_request"
-ANTHROPIC_THINKING_BINDING_CONTROLS_BETA_HEADER: Final = "thinking-binding-controls-2026-08-01"
-ANTHROPIC_MID_CONVERSATION_TOOL_CHANGES_BETA_HEADER: Final = "mid-conversation-tool-changes-2026-07-01"
-
-ANTHROPIC_FINE_GRAINED_TOOL_STREAMING_BETA_HEADER: Final = "fine-grained-tool-streaming-2025-05-14"
 
 # OAuth constants
 ANTHROPIC_OAUTH_TOKEN_PREFIX: Final = "sk-ant-oat"
 ANTHROPIC_OAUTH_BETA_HEADER: Final = "oauth-2025-04-20"
-ANTHROPIC_TOKEN_EXCHANGE_PATH: Final = "/v1/oauth/token"
 
 ANTHROPIC_PROMPT_CACHING_SCOPE_BETA_HEADER: Final = "prompt-caching-scope-2026-01-05"

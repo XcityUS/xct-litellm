@@ -11,7 +11,6 @@ from typing import Final
 import httpx
 
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
-from litellm.litellm_core_utils.url_utils import join_api_base
 from litellm.llms.nvidia_nim.rerank.transformation import NvidiaNimRerankConfig
 from litellm.types.rerank import RerankResponse
 
@@ -77,7 +76,7 @@ class NvidiaNimRankingConfig(NvidiaNimRerankConfig):
 
         api_base = api_base.removesuffix("/v1")
 
-        return join_api_base(api_base, "v1/ranking")
+        return f"{api_base}/v1/ranking"
 
     def map_cohere_rerank_params(
         self,
@@ -142,7 +141,9 @@ class NvidiaNimRankingConfig(NvidiaNimRerankConfig):
             self._client_side_top_n = top_n
 
         clean_model: Final = self._get_clean_model_name(model)
-        filtered_params: Final = {k: v for k, v in optional_rerank_params.items() if k not in ("top_n", "top_k")}
+        filtered_params: Final = {  # mutable-ok: the base transformer requires a mutable request dictionary
+            k: v for k, v in optional_rerank_params.items() if k not in ("top_n", "top_k")
+        }
         return super().transform_rerank_request(
             model=clean_model,
             optional_rerank_params=filtered_params,
@@ -167,9 +168,9 @@ class NvidiaNimRankingConfig(NvidiaNimRerankConfig):
         /v1/ranking returns rankings sorted by relevance, but sort before
         truncating in case a server returns them unsorted.
         """
-        resolved_request_data: Final = request_data or {}
-        resolved_optional_params: Final = optional_params or {}
-        resolved_litellm_params: Final = litellm_params or {}
+        resolved_request_data: Final = request_data or {}  # mutable-ok: the base transformer requires a dictionary
+        resolved_optional_params: Final = optional_params or {}  # mutable-ok: response options are keyed lookups
+        resolved_litellm_params: Final = litellm_params or {}  # mutable-ok: the base transformer requires a dictionary
 
         response: Final = super().transform_rerank_response(
             model=model,

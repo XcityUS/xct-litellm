@@ -23,7 +23,7 @@ from access_control_client import (
     MODEL_ACCESS_DENIED_MARKER,
     TEAM_MODEL_ACCESS_DENIED_MARKER,
 )
-from e2e_config import settle_propagation, unique_marker
+from e2e_config import unique_marker
 from lifecycle import ResourceManager
 from models import (
     ChatResponse,
@@ -31,9 +31,7 @@ from models import (
     LiteLLMParamsBody,
     ModelInfoBody,
     ModelNewBody,
-    TeamInfoResponse,
 )
-from e2e_metadata import Domain, Mode, Provider, Subject, meta
 
 pytestmark = pytest.mark.e2e
 
@@ -113,6 +111,24 @@ def _await_group_members(client: AccessControlClient, access_group: str, expecte
     )
 
 
+def _await_team_allowlist(client: AccessControlClient, grant_key: str, access_group: str) -> None:
+    """Registering a team-scoped deployment appends its public name to the team's
+    allow-list, and a wildcard sitting there directly would grant the model under test
+    on its own. Poll a denial until the message enumerates the allow-list the test
+    means to exercise: the group, and nothing else."""
+    allowlist: Final = f"models=['{access_group}']"
+    deadline = time.monotonic() + client.proxy.poll_timeout
+    body = ""
+    while time.monotonic() < deadline:
+        body = client.chat_status(
+            grant_key, UNCOVERED_OPENAI_MODEL, f"{PROMPT} {unique_marker()}", MAX_COMPLETION_TOKENS
+        ).body
+        if allowlist in body:
+            return
+        time.sleep(client.proxy.poll_interval)
+    pytest.fail(f"the team's allow-list never settled to {allowlist}; last denial read {body[:300]}")
+
+
 @pytest.fixture(scope="module")
 def grouped(client: AccessControlClient) -> Iterator[GroupedDeployments]:
     marker: Final = unique_marker()
@@ -156,15 +172,9 @@ def team_grant(client: AccessControlClient) -> Iterator[TeamGrant]:
         ),
         listed_for=key,
     )
+    client.set_team_models(team_id, team_alias, [access_group])
     try:
-        client.set_team_models(team_id, team_alias, [access_group])
-        written_at: Final = time.monotonic()
-        _ = client.proxy.read_body_back_everywhere(
-            f"/team/info?team_id={team_id}",
-            TeamInfoResponse,
-            settled=lambda response: response.team_id == team_id and response.team_info.models == [access_group],
-        )
-        settle_propagation(written_at)
+        _await_team_allowlist(client, key, access_group)
         yield TeamGrant(access_group=access_group, team_id=team_id, key=key)
     finally:
         client.proxy.delete_model(model_id)
@@ -178,14 +188,6 @@ class TestKeyScopedToAccessGroup:
         "other.auth.model_access_group.member_allowed",
     )
     @pytest.mark.parametrize(("case", "select_model"), ALLOWED)
-    @meta(
-        Subject(
-            domain=Domain.PROXY_AUTH,
-            providers=(Provider.OPENAI,),
-            models=(GROUP_BACKEND, WILDCARD_BARE_MODEL, WILDCARD_PREFIXED_MODEL,),
-            mode=Mode.NONSTREAM,
-        )
-    )
     def test_group_grants_every_deployment_in_it(
         self,
         case: str,
@@ -211,13 +213,6 @@ class TestKeyScopedToAccessGroup:
 
     @pytest.mark.covers("other.auth.model_access_group.non_member_denied")
     @pytest.mark.parametrize(("case", "select_model"), DENIED)
-    @meta(
-        Subject(
-            domain=Domain.PROXY_AUTH,
-            models=(GROUP_BACKEND, UNCOVERED_OPENAI_MODEL,),
-            mode=Mode.NONSTREAM,
-        )
-    )
     def test_group_grants_nothing_outside_it(
         self,
         case: str,
@@ -244,14 +239,6 @@ class TestKeyScopedToAccessGroup:
 
 class TestTeamScopedToAccessGroup:
     @pytest.mark.covers("other.auth.model_access_group.team_wildcard_bare_name_allowed")
-    @meta(
-        Subject(
-            domain=Domain.PROXY_AUTH,
-            providers=(Provider.OPENAI,),
-            models=(TEAM_WILDCARD_BARE_MODEL,),
-            mode=Mode.NONSTREAM,
-        )
-    )
     def test_group_grants_the_teams_own_wildcard(
         self, client: AccessControlClient, team_grant: TeamGrant
     ) -> None:
@@ -272,12 +259,6 @@ class TestTeamScopedToAccessGroup:
         )
 
     @pytest.mark.covers("other.auth.model_access_group.team_non_member_denied")
-    @meta(
-        Subject(
-            domain=Domain.PROXY_AUTH,
-            mode=Mode.NONSTREAM,
-        )
-    )
     def test_group_grants_the_team_nothing_outside_it(
         self, client: AccessControlClient, team_grant: TeamGrant
     ) -> None:

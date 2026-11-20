@@ -7,18 +7,16 @@ Reference: https://docs.aws.amazon.com/polly/latest/dg/API_SynthesizeSpeech.html
 
 import json
 from collections.abc import Coroutine
-from typing import TYPE_CHECKING, Any, ClassVar, Final, Union
+from typing import TYPE_CHECKING, Any, Final, Union
 
 import httpx
 
 from litellm.litellm_core_utils.aws_partition import get_aws_dns_suffix
-from litellm.litellm_core_utils.optional_imports import ensure_optional_import
 from litellm.llms.base_llm.text_to_speech.transformation import (
     BaseTextToSpeechConfig,
     TextToSpeechRequestData,
 )
 from litellm.llms.bedrock.base_aws_llm import BaseAWSLLM
-from litellm.llms.bedrock.web_identity_session_policy import POLLY_SESSION_POLICY, WebIdentitySessionPolicy
 
 if TYPE_CHECKING:
     from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
@@ -35,8 +33,6 @@ class AWSPollyTextToSpeechConfig(BaseTextToSpeechConfig, BaseAWSLLM):
 
     Reference: https://docs.aws.amazon.com/polly/latest/dg/API_SynthesizeSpeech.html
     """
-
-    _web_identity_session_policy: ClassVar[WebIdentitySessionPolicy] = POLLY_SESSION_POLICY
 
     def __init__(self):
         BaseTextToSpeechConfig.__init__(self)
@@ -181,6 +177,7 @@ class AWSPollyTextToSpeechConfig(BaseTextToSpeechConfig, BaseAWSLLM):
         else:
             mapped_params["output_format"] = self.DEFAULT_OUTPUT_FORMAT
 
+        # Extract engine from model name (e.g., "aws_polly/neural" -> "neural")
         engine: Final = self._extract_engine_from_model(model)
         mapped_params["engine"] = engine
 
@@ -198,17 +195,18 @@ class AWSPollyTextToSpeechConfig(BaseTextToSpeechConfig, BaseAWSLLM):
         """
         Extract engine from model name.
 
-        speech() strips the "aws_polly/" prefix before the config is called,
-        so the bare engine name is what normally arrives here.
-
         Examples:
-            - standard -> standard
+            - aws_polly/neural -> neural
+            - aws_polly/standard -> standard
             - aws_polly/long-form -> long-form
             - aws_polly -> neural (default)
         """
-        engine: Final = model.rsplit("/", 1)[-1].lower()
-        if engine in self.VALID_ENGINES:
-            return engine
+        if "/" in model:
+            parts: Final = model.split("/")
+            if len(parts) >= 2:
+                engine: Final = parts[1].lower()
+                if engine in self.VALID_ENGINES:
+                    return engine
         return self.DEFAULT_ENGINE
 
     def validate_environment(
@@ -264,9 +262,11 @@ class AWSPollyTextToSpeechConfig(BaseTextToSpeechConfig, BaseAWSLLM):
         Returns:
             Tuple of (signed_headers, json_body_string)
         """
-        ensure_optional_import("botocore")
-        from botocore.auth import SigV4Auth
-        from botocore.awsrequest import AWSRequest
+        try:
+            from botocore.auth import SigV4Auth
+            from botocore.awsrequest import AWSRequest
+        except ImportError:
+            raise ImportError("Missing boto3 to call AWS Polly. Run 'pip install boto3'.")
 
         # Get AWS region
         aws_region_name: Final = litellm_params.get("aws_region_name", self.DEFAULT_REGION)

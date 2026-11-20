@@ -1,21 +1,19 @@
 import builtins
 from collections.abc import Mapping
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import PrivateAttr
+from pydantic import BaseModel
 from typing_extensions import ReadOnly, TypedDict
 
-from litellm.types.llms.base import LiteLLMBaseModel
 
-
-class ExpiresAfter(LiteLLMBaseModel):
+class ExpiresAfter(BaseModel):
     """Container expiration settings."""
 
     anchor: Literal["last_active_at"]
     minutes: int
 
 
-class ContainerObject(LiteLLMBaseModel):
+class ContainerObject(BaseModel):
     """Represents a container object."""
 
     id: str
@@ -25,15 +23,7 @@ class ContainerObject(LiteLLMBaseModel):
     expires_after: ExpiresAfter | None = None
     last_active_at: int | None = None
     name: str | None = None
-    _hidden_params: dict[str, builtins.object] = PrivateAttr(default={})
-
-    @property
-    def hidden_params(self) -> dict[str, builtins.object]:  # mutable-ok: API requires mutation
-        return self._hidden_params
-
-    @hidden_params.setter
-    def hidden_params(self, hidden_params: dict[str, builtins.object]) -> None:  # mutable-ok: API requires mutation
-        self._hidden_params = hidden_params
+    _hidden_params: dict[str, Any] = {}
 
     def __contains__(self, key: str) -> bool:
         # Define custom behavior for the 'in' operator
@@ -55,7 +45,7 @@ class ContainerObject(LiteLLMBaseModel):
             return self.dict()
 
 
-class DeleteContainerResult(LiteLLMBaseModel):
+class DeleteContainerResult(BaseModel):
     """Result of a delete container request."""
 
     id: str
@@ -78,7 +68,7 @@ class DeleteContainerResult(LiteLLMBaseModel):
             return self.dict()
 
 
-class ContainerListResponse(LiteLLMBaseModel):
+class ContainerListResponse(BaseModel):
     """Response object for list containers request."""
 
     object: Literal["list"]
@@ -140,7 +130,7 @@ class ContainerListOptionalRequestParams(TypedDict, total=False):
     extra_query: dict[str, str] | None
 
 
-class ContainerFileObject(LiteLLMBaseModel):
+class ContainerFileObject(BaseModel):
     """Represents a container file object."""
 
     id: str
@@ -150,15 +140,7 @@ class ContainerFileObject(LiteLLMBaseModel):
     created_at: int
     path: str
     source: str
-    _hidden_params: dict[str, builtins.object] = PrivateAttr(default={})
-
-    @property
-    def hidden_params(self) -> dict[str, builtins.object]:  # mutable-ok: API requires mutation
-        return self._hidden_params
-
-    @hidden_params.setter
-    def hidden_params(self, hidden_params: dict[str, builtins.object]) -> None:  # mutable-ok: API requires mutation
-        self._hidden_params = hidden_params
+    _hidden_params: dict[str, Any] = {}
 
     def __contains__(self, key: str) -> bool:
         return hasattr(self, key)
@@ -176,7 +158,7 @@ class ContainerFileObject(LiteLLMBaseModel):
             return self.dict()
 
 
-class ContainerFileListResponse(LiteLLMBaseModel):
+class ContainerFileListResponse(BaseModel):
     """Response object for list container files request."""
 
     object: Literal["list"]
@@ -201,7 +183,7 @@ class ContainerFileListResponse(LiteLLMBaseModel):
             return self.dict()
 
 
-class DeleteContainerFileResponse(LiteLLMBaseModel):
+class DeleteContainerFileResponse(BaseModel):
     """Response object for delete container file request."""
 
     id: str

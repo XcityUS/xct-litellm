@@ -1,8 +1,7 @@
 """Type definitions for Opik payload building."""
 
-from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
 
 @dataclass
@@ -14,9 +13,9 @@ class TracePayload:
     name: str
     start_time: str
     end_time: str
-    input: object
-    output: object
-    metadata: Mapping[str, object]
+    input: Any
+    output: Any
+    metadata: dict[str, Any]
     tags: list[str]
     thread_id: str | None = None
 
@@ -33,9 +32,9 @@ class SpanPayload:
     model: str
     start_time: str
     end_time: str
-    input: object
-    output: object
-    metadata: Mapping[str, object]
+    input: Any
+    output: Any
+    metadata: dict[str, Any]
     tags: list[str]
     usage: dict[str, int]
     parent_span_id: str | None = None

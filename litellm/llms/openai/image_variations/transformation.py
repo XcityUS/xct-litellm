@@ -12,7 +12,7 @@ from ...base_llm.image_variations.transformation import BaseImageVariationConfig
 from ..common_utils import OpenAIError
 
 if TYPE_CHECKING:
-    from litellm.litellm_core_utils.tokenizer import Encoding as Tokenizer
+    import tiktoken
 
 
 class OpenAIImageVariationConfig(BaseImageVariationConfig):
@@ -53,7 +53,7 @@ class OpenAIImageVariationConfig(BaseImageVariationConfig):
         image: FileTypes,
         optional_params: dict,
         litellm_params: dict,
-        encoding: "Tokenizer | None",
+        encoding: "tiktoken.Encoding | None",
         api_key: str | None = None,
     ) -> ImageResponse:
         return model_response
@@ -68,7 +68,7 @@ class OpenAIImageVariationConfig(BaseImageVariationConfig):
         image: FileTypes,
         optional_params: dict,
         litellm_params: dict,
-        encoding: "Tokenizer | None",
+        encoding: "tiktoken.Encoding | None",
         api_key: str | None = None,
     ) -> ImageResponse:
         return model_response

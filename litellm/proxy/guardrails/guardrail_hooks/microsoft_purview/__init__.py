@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING, Final
 
-from litellm.litellm_core_utils.core_helpers import attribute_or_none
 from litellm.types.guardrails import SupportedGuardrailIntegrations
 
 from .purview_dlp import MicrosoftPurviewDLPGuardrail
@@ -12,8 +11,8 @@ if TYPE_CHECKING:
 def initialize_guardrail(litellm_params: "LitellmParams", guardrail: "Guardrail"):
     import litellm
 
-    tenant_id: Final = attribute_or_none(litellm_params, "tenant_id")
-    client_id: Final = attribute_or_none(litellm_params, "client_id")
+    tenant_id: Final = getattr(litellm_params, "tenant_id", None)
+    client_id: Final = getattr(litellm_params, "client_id", None)
 
     # client_secret can be passed via the standard api_key field or as
     # a dedicated client_secret parameter.
@@ -39,7 +38,6 @@ def initialize_guardrail(litellm_params: "LitellmParams", guardrail: "Guardrail"
         user_id_field=str(getattr(litellm_params, "user_id_field", None) or "user_id"),
         event_hook=litellm_params.mode,
         default_on=litellm_params.default_on,
-        timeout=litellm_params.timeout,
     )
 
     litellm.logging_callback_manager.add_litellm_callback(purview_guardrail)

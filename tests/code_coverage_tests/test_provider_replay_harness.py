@@ -256,9 +256,7 @@ assert replay_leftover_error(mode_raw="replay", bundle_dir=Path(sys.argv[1]), te
                 ],
                 env={
                     **os.environ,
-                    "PYTHONPATH": os.pathsep.join(
-                        str(Path(__file__).resolve().parents[1] / tree) for tree in ("e2e", "e2e_harness")
-                    ),
+                    "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "e2e"),
                     "E2E_REPLAY_MATCH_PROFILE": "stateless_v1",
                 },
                 capture_output=True,

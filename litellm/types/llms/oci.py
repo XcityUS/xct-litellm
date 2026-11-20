@@ -3,9 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal
 
-from pydantic import SerializeAsAny
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, SerializeAsAny
 
 OCIRoles = Literal["SYSTEM", "USER", "ASSISTANT", "TOOL"]
 
@@ -23,7 +21,7 @@ class OCIVendors(Enum):
 # --- Base Models and Content Parts ---
 
 
-class OCIContentPart(LiteLLMBaseModel):
+class OCIContentPart(BaseModel):
     """Base model for content parts in an OCI message."""
 
 
@@ -34,7 +32,7 @@ class OCITextContentPart(OCIContentPart):
     text: str
 
 
-class OCIImageUrl(LiteLLMBaseModel):
+class OCIImageUrl(BaseModel):
     """ImageUrl object for OCI API. See: https://docs.oracle.com/en-us/iaas/tools/python/latest/api/generative_ai_inference/models/oci.generative_ai_inference.models.ImageUrl.html"""
 
     url: str
@@ -53,7 +51,7 @@ OCIContentPartUnion = OCITextContentPart | OCIImageContentPart
 # --- Models for Tools and Tool Calls ---
 
 
-class OCIToolCall(LiteLLMBaseModel):
+class OCIToolCall(BaseModel):
     """Represents a tool call made by the model."""
 
     id: str | None = None  # absent in some provider responses (e.g. Google via OCI)
@@ -62,7 +60,7 @@ class OCIToolCall(LiteLLMBaseModel):
     arguments: str  # Arguments should be a JSON-serialized string
 
 
-class OCIToolDefinition(LiteLLMBaseModel):
+class OCIToolDefinition(BaseModel):
     """Defines a tool that can be used by the model."""
 
     type: Literal["FUNCTION"] = "FUNCTION"
@@ -74,7 +72,7 @@ class OCIToolDefinition(LiteLLMBaseModel):
 # --- Message Models (Request and Response) ---
 
 
-class OCIMessage(LiteLLMBaseModel):
+class OCIMessage(BaseModel):
     """Model for a single message in the request/response payload."""
 
     role: OCIRoles
@@ -86,7 +84,7 @@ class OCIMessage(LiteLLMBaseModel):
 # --- Request Payload Models ---
 
 
-class OCIChatRequestPayload(LiteLLMBaseModel):
+class OCIChatRequestPayload(BaseModel):
     """Internal 'chatRequest' payload for the OCI API."""
 
     apiFormat: str
@@ -113,7 +111,7 @@ class OCIChatRequestPayload(LiteLLMBaseModel):
     logProbs: int | None = None
 
 
-class OCIServingMode(LiteLLMBaseModel):
+class OCIServingMode(BaseModel):
     """Defines the serving mode and the model to be used."""
 
     servingType: str
@@ -121,7 +119,7 @@ class OCIServingMode(LiteLLMBaseModel):
     modelId: str | None = None
 
 
-class OCICompletionPayload(LiteLLMBaseModel):
+class OCICompletionPayload(BaseModel):
     """Pydantic model for the complete OCI chat request body."""
 
     compartmentId: str
@@ -132,20 +130,20 @@ class OCICompletionPayload(LiteLLMBaseModel):
 # --- API Response Models (Non-streaming) ---
 
 
-class OCICompletionTokenDetails(LiteLLMBaseModel):
+class OCICompletionTokenDetails(BaseModel):
     """Completion token details in the OCI response."""
 
     acceptedPredictionTokens: int | None = None
     reasoningTokens: int | None = None
 
 
-class OCIPromptTokensDetails(LiteLLMBaseModel):
+class OCIPromptTokensDetails(BaseModel):
     """Prompt token details in the OCI response."""
 
     cachedTokens: int | None = None
 
 
-class OCIResponseUsage(LiteLLMBaseModel):
+class OCIResponseUsage(BaseModel):
     """Token usage in the OCI response."""
 
     promptTokens: int
@@ -157,7 +155,7 @@ class OCIResponseUsage(LiteLLMBaseModel):
     promptTokensDetails: OCIPromptTokensDetails | None = None
 
 
-class OCIResponseChoice(LiteLLMBaseModel):
+class OCIResponseChoice(BaseModel):
     """A completion choice in the OCI response."""
 
     index: int
@@ -168,7 +166,7 @@ class OCIResponseChoice(LiteLLMBaseModel):
     logprobs: dict[str, object] | None = None
 
 
-class OCIChatResponse(LiteLLMBaseModel):
+class OCIChatResponse(BaseModel):
     """The 'chatResponse' object in the OCI response."""
 
     apiFormat: str
@@ -177,7 +175,7 @@ class OCIChatResponse(LiteLLMBaseModel):
     usage: OCIResponseUsage
 
 
-class OCICompletionResponse(LiteLLMBaseModel):
+class OCICompletionResponse(BaseModel):
     """Model for the complete non-streaming OCI response body."""
 
     modelId: str
@@ -188,7 +186,7 @@ class OCICompletionResponse(LiteLLMBaseModel):
 # --- API Response Models (Streaming) ---
 
 
-class OCIStreamDelta(LiteLLMBaseModel):
+class OCIStreamDelta(BaseModel):
     """The content delta in a streaming chunk."""
 
     content: list[OCIContentPartUnion] | None = None
@@ -196,7 +194,7 @@ class OCIStreamDelta(LiteLLMBaseModel):
     toolCalls: list[OCIToolCall] | None = None
 
 
-class OCIStreamChunk(LiteLLMBaseModel):
+class OCIStreamChunk(BaseModel):
     """Model for a single SSE event chunk from OCI."""
 
     finishReason: str | None = None
@@ -208,7 +206,7 @@ class OCIStreamChunk(LiteLLMBaseModel):
 # --- Cohere-Specific Models ---
 
 
-class CohereStreamChunk(LiteLLMBaseModel):
+class CohereStreamChunk(BaseModel):
     """Model for a single SSE event chunk from OCI Cohere API."""
 
     apiFormat: str
@@ -220,7 +218,7 @@ class CohereStreamChunk(LiteLLMBaseModel):
     index: int | None = None
 
 
-class CohereMessage(LiteLLMBaseModel):
+class CohereMessage(BaseModel):
     """Base model for Cohere messages."""
 
     role: str
@@ -257,7 +255,7 @@ class CohereToolMessage(CohereMessage):
     toolResults: list[CohereToolResult]
 
 
-class CohereParameterDefinition(LiteLLMBaseModel):
+class CohereParameterDefinition(BaseModel):
     """Parameter definition for Cohere tools."""
 
     description: str
@@ -265,7 +263,7 @@ class CohereParameterDefinition(LiteLLMBaseModel):
     isRequired: bool = False
 
 
-class CohereTool(LiteLLMBaseModel):
+class CohereTool(BaseModel):
     """Tool definition for Cohere."""
 
     name: str
@@ -273,14 +271,14 @@ class CohereTool(LiteLLMBaseModel):
     parameterDefinitions: dict[str, CohereParameterDefinition]
 
 
-class CohereToolCall(LiteLLMBaseModel):
+class CohereToolCall(BaseModel):
     """Tool call made by Cohere model."""
 
     name: str
     parameters: dict[str, object]
 
 
-class CohereToolResult(LiteLLMBaseModel):
+class CohereToolResult(BaseModel):
     """Result of a tool call.
 
     Matches the OCI SDK's CohereToolResult: each result carries the originating
@@ -291,7 +289,7 @@ class CohereToolResult(LiteLLMBaseModel):
     outputs: list[dict[str, object]]
 
 
-class CohereChatRequest(LiteLLMBaseModel):
+class CohereChatRequest(BaseModel):
     """Cohere chat request model."""
 
     # Required fields
@@ -338,7 +336,7 @@ class CohereChatRequest(LiteLLMBaseModel):
     streamOptions: dict[str, object] | None = None
 
 
-class CohereUsage(LiteLLMBaseModel):
+class CohereUsage(BaseModel):
     """Usage information for Cohere response."""
 
     promptTokens: int
@@ -348,7 +346,7 @@ class CohereUsage(LiteLLMBaseModel):
     completionTokensDetails: dict[str, object] | None = None
 
 
-class CohereCitation(LiteLLMBaseModel):
+class CohereCitation(BaseModel):
     """Citation in Cohere response."""
 
     start: int
@@ -357,14 +355,14 @@ class CohereCitation(LiteLLMBaseModel):
     document_ids: list[str]
 
 
-class CohereSearchQuery(LiteLLMBaseModel):
+class CohereSearchQuery(BaseModel):
     """Search query generated by Cohere."""
 
     text: str
     generation_id: str
 
 
-class CohereChatResponse(LiteLLMBaseModel):
+class CohereChatResponse(BaseModel):
     """Cohere chat response model."""
 
     # Required fields
@@ -389,7 +387,7 @@ class CohereChatResponse(LiteLLMBaseModel):
     usage: CohereUsage | None = None
 
 
-class CohereChatDetails(LiteLLMBaseModel):
+class CohereChatDetails(BaseModel):
     """Chat details for Cohere request."""
 
     compartmentId: str
@@ -397,7 +395,7 @@ class CohereChatDetails(LiteLLMBaseModel):
     chatRequest: CohereChatRequest
 
 
-class CohereChatResult(LiteLLMBaseModel):
+class CohereChatResult(BaseModel):
     """Complete Cohere chat result."""
 
     modelId: str
@@ -410,7 +408,7 @@ class CohereChatResult(LiteLLMBaseModel):
 # ---------------------------------------------------------------------------
 
 
-class OCIEmbedRequest(LiteLLMBaseModel):
+class OCIEmbedRequest(BaseModel):
     """Request body for POST /20231130/actions/embedText."""
 
     compartmentId: str
@@ -421,12 +419,12 @@ class OCIEmbedRequest(LiteLLMBaseModel):
     outputDimensions: int | None = None  # cohere.embed-v4.0+; valid: 256, 512, 1024, 1536
 
 
-class OCIEmbedUsage(LiteLLMBaseModel):
+class OCIEmbedUsage(BaseModel):
     promptTokens: int
     totalTokens: int
 
 
-class OCIEmbedResponse(LiteLLMBaseModel):
+class OCIEmbedResponse(BaseModel):
     """Response body from POST /20231130/actions/embedText."""
 
     id: str | None = None  # present in the official SDK response

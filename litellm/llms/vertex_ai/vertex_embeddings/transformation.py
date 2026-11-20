@@ -1,38 +1,15 @@
 import types
-from collections.abc import Mapping
-from typing import Final, Literal, cast  # noqa: TID251  # extra_body carries raw fields the TypedDict lacks
+from typing import Final, Literal
 
-from pydantic import TypeAdapter
-from typing_extensions import ReadOnly, TypedDict
+from pydantic import BaseModel
 
-from litellm.llms.base_llm.embedding.transformation import split_extra_body
 from litellm.llms.vertex_ai.common_utils import pop_vertex_request_labels
-from litellm.types.llms.base import LiteLLMBaseModel
-from litellm.types.utils import EmbeddingResponse, PromptTokensDetailsWrapper, Usage
+from litellm.types.utils import EmbeddingResponse, Usage
 
 from .types import *
 
 
-class _PredictMetadata(TypedDict, total=False):
-    billableCharacterCount: ReadOnly[int]
-
-
-class _PredictResponseMetadata(TypedDict, total=False):
-    metadata: ReadOnly[_PredictMetadata]
-
-
-_PREDICT_RESPONSE_METADATA: Final = TypeAdapter(_PredictResponseMetadata)
-
-
-def billable_character_count(response: _PredictResponseMetadata) -> int | None:
-    """
-    `metadata.billableCharacterCount` of a Vertex text embedding predict response, the count Google
-    bills per-character embedding models (text-embedding-005, text-multilingual-embedding-002) on.
-    """
-    return response.get("metadata", {}).get("billableCharacterCount")
-
-
-class VertexAITextEmbeddingConfig(LiteLLMBaseModel):
+class VertexAITextEmbeddingConfig(BaseModel):
     """
     Reference: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/text-embeddings-api#TextEmbeddingInput
 
@@ -72,17 +49,16 @@ class VertexAITextEmbeddingConfig(LiteLLMBaseModel):
         | None = None,
         title: str | None = None,
     ) -> None:
-        locals_: Final[Mapping[str, object]] = types.MappingProxyType(locals().copy())
+        locals_: Final = locals().copy()
         for key, value in locals_.items():
             if key != "self" and value is not None:
                 setattr(self.__class__, key, value)
 
     @classmethod
     def get_config(cls):
-        class_attributes: Final[Mapping[str, object]] = types.MappingProxyType(cls.__dict__)
         return {
             k: v
-            for k, v in class_attributes.items()
+            for k, v in cls.__dict__.items()
             if not k.startswith("__")
             and not isinstance(
                 v,
@@ -165,12 +141,7 @@ class VertexAITextEmbeddingConfig(LiteLLMBaseModel):
             vertex_text_embedding_input_list.append(embedding_input)
 
         vertex_request["instances"] = vertex_text_embedding_input_list
-        body_params, extra_body = split_extra_body(optional_params)
-        vertex_request["parameters"] = (
-            cast(  # cast-ok: extra_body carries raw Vertex fields the TypedDict does not list
-                EmbeddingParameters, {**extra_body, **body_params}
-            )
-        )
+        vertex_request["parameters"] = EmbeddingParameters(**optional_params)
         if labels:
             vertex_request["labels"] = labels
 
@@ -211,12 +182,7 @@ class VertexAITextEmbeddingConfig(LiteLLMBaseModel):
             vertex_text_embedding_input_list.append(embedding_input)
 
         vertex_request["instances"] = vertex_text_embedding_input_list
-        body_params, extra_body = split_extra_body(optional_params)
-        vertex_request["parameters"] = (
-            cast(  # cast-ok: extra_body carries raw Vertex fields the TypedDict does not list
-                TextEmbeddingFineTunedParameters, {**extra_body, **body_params}
-            )
-        )
+        vertex_request["parameters"] = TextEmbeddingFineTunedParameters(**optional_params)
         # Remove 'shared_session' from parameters if present
         if vertex_request["parameters"] is not None and "shared_session" in vertex_request["parameters"]:
             del vertex_request["parameters"]["shared_session"]
@@ -282,15 +248,7 @@ class VertexAITextEmbeddingConfig(LiteLLMBaseModel):
         model_response.object = "list"
         model_response.data = embedding_response
         model_response.model = model
-        billable_characters: Final = billable_character_count(_PREDICT_RESPONSE_METADATA.validate_python(response))
-        usage: Final = Usage(
-            prompt_tokens=input_tokens,
-            completion_tokens=0,
-            total_tokens=input_tokens,
-            prompt_tokens_details=(
-                None if billable_characters is None else PromptTokensDetailsWrapper(character_count=billable_characters)
-            ),
-        )
+        usage: Final = Usage(prompt_tokens=input_tokens, completion_tokens=0, total_tokens=input_tokens)
         setattr(model_response, "usage", usage)
         return model_response
 

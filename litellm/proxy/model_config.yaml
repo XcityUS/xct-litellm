@@ -1,7 +1,7 @@
 model_list:
-  - model_name: gpt-6.1-sol
+  - model_name: gpt-4o
     litellm_params:
-      model: openai/gpt-6.1-sol
+      model: openai/gpt-4o
       api_base: https://exampleopenaiendpoint-production.up.railway.app/
   - model_name: fake-anthropic-endpoint
     litellm_params:

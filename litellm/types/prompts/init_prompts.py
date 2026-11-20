@@ -1,10 +1,8 @@
 from datetime import datetime
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import ConfigDict
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class SupportedPromptIntegrations(str, Enum):
@@ -17,21 +15,21 @@ class SupportedPromptIntegrations(str, Enum):
     ARIZE_PHOENIX = "arize_phoenix"
 
 
-class PromptInfo(LiteLLMBaseModel):
+class PromptInfo(BaseModel):
     prompt_type: Literal["config", "db"]
     environment: str | None = "development"
 
     model_config = ConfigDict(extra="allow", protected_namespaces=())
 
 
-class PromptLiteLLMParams(LiteLLMBaseModel):
+class PromptLiteLLMParams(BaseModel):
     prompt_id: str | None = None
     prompt_integration: str
 
     api_base: str | None = None
     api_key: str | None = None
 
-    provider_specific_query_params: dict[str, object] | None = None
+    provider_specific_query_params: dict[str, Any] | None = None
 
     ignore_prompt_manager_model: bool | None = False
     ignore_prompt_manager_optional_params: bool | None = False
@@ -44,7 +42,7 @@ class PromptLiteLLMParams(LiteLLMBaseModel):
     model_config = ConfigDict(extra="allow", protected_namespaces=())
 
 
-class PromptSpec(LiteLLMBaseModel):
+class PromptSpec(BaseModel):
     prompt_id: str
     litellm_params: PromptLiteLLMParams
     prompt_info: PromptInfo
@@ -63,17 +61,17 @@ class PromptSpec(LiteLLMBaseModel):
         super().__init__(**data)
 
 
-class PromptTemplateBase(LiteLLMBaseModel):
+class PromptTemplateBase(BaseModel):
     litellm_prompt_id: str
     content: str
-    metadata: dict[str, object] | None = None
+    metadata: dict[str, Any] | None = None
 
 
-class PromptInfoResponse(LiteLLMBaseModel):
+class PromptInfoResponse(BaseModel):
     prompt_spec: PromptSpec
     raw_prompt_template: PromptTemplateBase | None = None
     environments: list[str] | None = None  # All environments this prompt is deployed to
 
 
-class ListPromptsResponse(LiteLLMBaseModel):
+class ListPromptsResponse(BaseModel):
     prompts: list[PromptSpec]

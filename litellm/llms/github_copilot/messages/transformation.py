@@ -1,20 +1,16 @@
-from collections.abc import Sequence
-from typing import Final, cast  # noqa: TID251  # narrows untyped request dicts at the session boundary
+from typing import Any, Final
 
 from litellm.exceptions import AuthenticationError
-from litellm.litellm_core_utils.url_utils import ensure_api_route
-from litellm.llms.anthropic.messages.native.transformation import (
+from litellm.llms.anthropic.experimental_pass_through.messages.transformation import (
     AnthropicMessagesConfig,
 )
 
 from ..authenticator import Authenticator
 from ..common_utils import (
     DEFAULT_GITHUB_COPILOT_API_BASE,
-    GetAccessTokenError,
+    GetAPIKeyError,
     get_copilot_default_headers,
-    pin_session_authorization,
 )
-from ..per_user_auth import require_github_copilot_user_session
 
 _MESSAGES_PROXY_API_VERSION: Final = "2026-06-01"
 
@@ -55,7 +51,7 @@ class GithubCopilotAnthropicMessagesConfig(AnthropicMessagesConfig):
         self,
         headers: dict,
         model: str,
-        messages: Sequence[object],
+        messages: list[Any],
         optional_params: dict,
         litellm_params: dict,
         api_key: str | None = None,
@@ -72,19 +68,10 @@ class GithubCopilotAnthropicMessagesConfig(AnthropicMessagesConfig):
         # session, never the caller-supplied api_base. rstrip so a
         # tenant-specific base with a trailing slash does not yield a
         # double-slash URL once "/v1/messages" is appended downstream.
-        user_session: Final = require_github_copilot_user_session(
-            cast("dict[str, object]", litellm_params)  # cast-ok: litellm_params arrives as an untyped request dict
-        )
-        dynamic_api_base: Final = (
-            user_session.api_base
-            if user_session is not None
-            else (self.authenticator.get_api_base() or DEFAULT_GITHUB_COPILOT_API_BASE)
-        ).rstrip("/")
+        dynamic_api_base: Final = (self.authenticator.get_api_base() or DEFAULT_GITHUB_COPILOT_API_BASE).rstrip("/")
         try:
-            dynamic_api_key: Final = (
-                user_session.token if user_session is not None else self.authenticator.get_api_key()
-            )
-        except GetAccessTokenError as e:
+            dynamic_api_key: Final = self.authenticator.get_api_key()
+        except GetAPIKeyError as e:
             raise AuthenticationError(
                 model=model,
                 llm_provider="github_copilot",
@@ -96,12 +83,6 @@ class GithubCopilotAnthropicMessagesConfig(AnthropicMessagesConfig):
         for key, value in copilot_headers.items():
             if key not in headers:
                 headers[key] = value
-        if user_session is not None:
-            pin_session_authorization(
-                cast("dict[str, str]", headers),  # cast-ok: headers is a str-valued request dict at runtime
-                user_session.token,
-                user_session.integration_id,
-            )
 
         headers["openai-intent"] = "messages-proxy"
         headers["x-interaction-type"] = "messages-proxy"
@@ -135,13 +116,7 @@ class GithubCopilotAnthropicMessagesConfig(AnthropicMessagesConfig):
         reuse it to avoid a second authenticator read, falling back to a fresh
         resolution only if it was not provided.
         """
-        user_session: Final = require_github_copilot_user_session(
-            cast("dict[str, object]", litellm_params)  # cast-ok: litellm_params arrives as an untyped request dict
-        )
-        resolved: Final = (
-            (user_session.api_base if user_session is not None else None)
-            or api_base
-            or self.authenticator.get_api_base()
-            or DEFAULT_GITHUB_COPILOT_API_BASE
-        )
-        return ensure_api_route(resolved, "v1/messages")
+        resolved = (api_base or self.authenticator.get_api_base() or DEFAULT_GITHUB_COPILOT_API_BASE).rstrip("/")
+        if not resolved.endswith("/v1/messages"):
+            resolved = f"{resolved}/v1/messages"
+        return resolved

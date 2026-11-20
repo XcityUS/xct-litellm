@@ -6,9 +6,9 @@
 # +-------------------------------------------------------------+
 
 import os
-from collections.abc import AsyncGenerator, AsyncIterable, Mapping
+from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import Final
+from typing import Any, Final
 
 import httpx
 
@@ -40,7 +40,7 @@ class IBMGuardrailDetector(CustomGuardrail):
         base_url: str | None = None,
         detector_id: str | None = None,
         is_detector_server: bool = True,
-        detector_params: Mapping[str, object] | None = None,
+        detector_params: dict[str, Any] | None = None,
         extra_headers: dict[str, str] | None = None,
         score_threshold: float | None = None,
         block_on_detection: bool = True,
@@ -140,7 +140,6 @@ class IBMGuardrailDetector(CustomGuardrail):
                 url=self.api_url,
                 json=payload,
                 headers=headers,
-                timeout=self.timeout,
             )
             response.raise_for_status()
             response_json: Final[list[list[IBMDetectorDetection]]] = response.json()
@@ -232,7 +231,6 @@ class IBMGuardrailDetector(CustomGuardrail):
                 url=self.api_url,
                 json=payload,
                 headers=headers,
-                timeout=self.timeout,
             )
             response.raise_for_status()
             response_json: Final[IBMDetectorResponseOrchestrator] = response.json()
@@ -647,7 +645,7 @@ class IBMGuardrailDetector(CustomGuardrail):
     async def async_post_call_streaming_iterator_hook(
         self,
         user_api_key_dict: UserAPIKeyAuth,
-        response: AsyncIterable[ModelResponseStream],
+        response: Any,
         request_data: dict,
     ) -> AsyncGenerator[ModelResponseStream, None]:
         """

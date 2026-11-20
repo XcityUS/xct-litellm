@@ -27,7 +27,6 @@ def initialize_guardrail(
         ),
         event_hook=litellm_params.mode,
         default_on=litellm_params.default_on,
-        timeout=litellm_params.timeout,
     )
     litellm.logging_callback_manager.add_litellm_callback(
         _cb,

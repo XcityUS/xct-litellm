@@ -1,7 +1,6 @@
 import types
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -22,14 +21,6 @@ else:
 
 from litellm.types.router import GenericLiteLLMParams
 
-GENERATE_CONTENT_REQUEST_TOP_LEVEL_FIELDS: Final = (
-    "safetySettings",
-    "toolConfig",
-    "cachedContent",
-    "labels",
-    "continuationToken",
-)
-
 
 class BaseGoogleGenAIGenerateContentConfig(ABC):
     """Base configuration class for Google GenAI generate_content functionality"""
@@ -39,10 +30,9 @@ class BaseGoogleGenAIGenerateContentConfig(ABC):
 
     @classmethod
     def get_config(cls):
-        class_attributes: Final[Mapping[str, object]] = types.MappingProxyType(cls.__dict__)
         return {
             k: v
-            for k, v in class_attributes.items()
+            for k, v in cls.__dict__.items()
             if not k.startswith("__")
             and not k.startswith("_abc")
             and not isinstance(
@@ -81,24 +71,14 @@ class BaseGoogleGenAIGenerateContentConfig(ABC):
         ``systemInstruction`` (dedicated extraction) and ``generationConfig`` (mapped
         to ``config``).
         """
-        return GENERATE_CONTENT_REQUEST_TOP_LEVEL_FIELDS
-
-    def transform_top_level_request_fields(
-        self,
-        request_fields: Mapping[str, object] | None,
-        litellm_params: GenericLiteLLMParams,
-    ) -> Mapping[str, object] | None:
-        return request_fields
-
-    def transform_caller_headers(self, headers: Mapping[str, object]) -> Mapping[str, object]:
-        return headers
+        return ("safetySettings", "toolConfig", "cachedContent", "labels")
 
     @abstractmethod
     def map_generate_content_optional_params(
         self,
         generate_content_config_dict: GenerateContentConfigDict,
         model: str,
-    ) -> dict[str, object]:
+    ) -> dict[str, Any]:
         """
         Map Google GenAI parameters to provider-specific format.
 
@@ -181,8 +161,8 @@ class BaseGoogleGenAIGenerateContentConfig(ABC):
         contents: GenerateContentContentListUnionDict,
         tools: ToolConfigDict | None,
         generate_content_config_dict: dict,
-        system_instruction: object | None = None,
-    ) -> dict[str, object]:
+        system_instruction: Any | None = None,
+    ) -> dict:
         """
         Transform the request parameters for the generate content API.
 

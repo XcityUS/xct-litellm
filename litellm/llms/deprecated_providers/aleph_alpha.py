@@ -1,29 +1,13 @@
 import json
 import time
 import types
-from collections.abc import Callable, Mapping, Sized
+from collections.abc import Callable
 from typing import Final
 
 import httpx
-from pydantic import TypeAdapter
 
 import litellm
-from litellm.litellm_core_utils.core_helpers import iter_items, json_contains, subscript
 from litellm.utils import Choices, Message, ModelResponse, Usage
-
-_DECODED_JSON: Final = TypeAdapter(object)
-_STR: Final = TypeAdapter(str)
-
-
-def _has_length(value: object) -> bool:
-    if isinstance(value, Sized):
-        return len(value) > 0
-    raise TypeError(f"object of type '{type(value).__name__}' has no len()")
-
-
-def _completion_message(item: object) -> Message:
-    completion: Final = subscript(item, "completion")
-    return Message(content=_STR.validate_python(completion) if _has_length(completion) else None)
 
 
 class AlephAlphaError(Exception):
@@ -156,17 +140,16 @@ class AlephAlphaConfig:
         contextual_control_threshold: int | None = None,
         control_log_additive: bool | None = None,
     ) -> None:
-        locals_: Final[Mapping[str, object]] = types.MappingProxyType(locals().copy())
+        locals_: Final = locals().copy()
         for key, value in locals_.items():
             if key != "self" and value is not None:
                 setattr(self.__class__, key, value)
 
     @classmethod
-    def get_config(cls) -> dict[str, object]:
-        class_attributes: Final[Mapping[str, object]] = types.MappingProxyType(cls.__dict__)
+    def get_config(cls):
         return {
             k: v
-            for k, v in class_attributes.items()
+            for k, v in cls.__dict__.items()
             if not k.startswith("__")
             and not isinstance(
                 v,
@@ -265,19 +248,22 @@ def completion(
         )
         print_verbose(f"raw model_response: {response.text}")
         ## RESPONSE OBJECT
-        completion_response: Final = _DECODED_JSON.validate_python(response.json())
-        if json_contains(completion_response, "error"):
+        completion_response: Final = response.json()
+        if "error" in completion_response:
             raise AlephAlphaError(
-                message=subscript(completion_response, "error"),
+                message=completion_response["error"],
                 status_code=response.status_code,
             )
         else:
             try:
                 choices_list: Final = []
-                for idx, item in enumerate(iter_items(subscript(completion_response, "completions"))):
-                    message_obj = _completion_message(item)
+                for idx, item in enumerate(completion_response["completions"]):
+                    if len(item["completion"]) > 0:
+                        message_obj = Message(content=item["completion"])
+                    else:
+                        message_obj = Message(content=None)
                     choice_obj = Choices(
-                        finish_reason=subscript(item, "finish_reason"),
+                        finish_reason=item["finish_reason"],
                         index=idx + 1,
                         message=message_obj,
                     )
@@ -291,7 +277,12 @@ def completion(
 
         ## CALCULATING USAGE - baseten charges on time, not tokens - have some mapping of cost here.
         prompt_tokens: Final = len(encoding.encode(prompt))
-        completion_tokens: Final = len(encoding.encode(model_response["choices"][0]["message"]["content"]))
+        completion_tokens: Final = len(
+            encoding.encode(
+                model_response["choices"][0]["message"]["content"],
+                disallowed_special=(),
+            )
+        )
 
         model_response.created = int(time.time())
         model_response.model = model

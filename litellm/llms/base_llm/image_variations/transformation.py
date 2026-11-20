@@ -17,8 +17,9 @@ from litellm.types.utils import (
 )
 
 if TYPE_CHECKING:
+    import tiktoken
+
     from litellm.litellm_core_utils.litellm_logging import Logging as _LiteLLMLoggingObj
-    from litellm.litellm_core_utils.tokenizer import Encoding as Tokenizer
 
     LiteLLMLoggingObj = _LiteLLMLoggingObj
 else:
@@ -81,7 +82,7 @@ class BaseImageVariationConfig(BaseConfig, ABC):
         image: FileTypes,
         optional_params: dict,
         litellm_params: dict,
-        encoding: "Tokenizer | None",
+        encoding: "tiktoken.Encoding | None",
         api_key: str | None = None,
     ) -> ImageResponse:
         pass
@@ -97,7 +98,7 @@ class BaseImageVariationConfig(BaseConfig, ABC):
         image: FileTypes,
         optional_params: dict,
         litellm_params: dict,
-        encoding: "Tokenizer | None",
+        encoding: "tiktoken.Encoding | None",
         api_key: str | None = None,
     ) -> ImageResponse:
         pass
@@ -124,7 +125,7 @@ class BaseImageVariationConfig(BaseConfig, ABC):
         messages: list[AllMessageValues],
         optional_params: dict,
         litellm_params: dict,
-        encoding: "Tokenizer | None",
+        encoding: "tiktoken.Encoding | None",
         api_key: str | None = None,
         json_mode: bool | None = None,
     ) -> ModelResponse:

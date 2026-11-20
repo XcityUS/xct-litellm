@@ -1,17 +1,16 @@
 import asyncio
 import json
 import time
-from collections.abc import Coroutine, Mapping
+from collections.abc import Coroutine
 from typing import Final
 
 import httpx
-from pydantic import TypeAdapter
 
 import litellm
 from litellm._logging import verbose_logger
 from litellm._uuid import uuid
 from litellm.litellm_core_utils.litellm_logging import Logging
-from litellm.litellm_core_utils.url_utils import encode_url_path_segment, join_api_base
+from litellm.litellm_core_utils.url_utils import encode_url_path_segment
 from litellm.llms.custom_httpx.http_handler import get_async_httpx_client
 from litellm.types.llms.openai import (
     FileContentRequest,
@@ -24,8 +23,6 @@ from litellm.types.utils import CallTypes, LlmProviders, ModelResponse
 
 from ..chat.transformation import AnthropicConfig
 from ..common_utils import ANTHROPIC_ERROR_STATUS_CODE_MAP, AnthropicModelInfo
-
-_DECODED_JSON: Final = TypeAdapter(object)
 
 
 class AnthropicFilesHandler:
@@ -46,7 +43,6 @@ class AnthropicFilesHandler:
         api_key: str | None = None,
         timeout: float | httpx.Timeout = 600.0,
         max_retries: int | None = None,
-        litellm_params: Mapping[str, object] | None = None,
     ) -> HttpxBinaryResponseContent:
         """
         Async: Retrieve file content from Anthropic.
@@ -60,7 +56,6 @@ class AnthropicFilesHandler:
             api_key: Anthropic API key
             timeout: Request timeout
             max_retries: Max retry attempts (unused for now)
-            litellm_params: Deployment params, so a named credential's federation settings reach the mint
 
         Returns:
             HttpxBinaryResponseContent: Binary content wrapped in compatible response format
@@ -77,17 +72,15 @@ class AnthropicFilesHandler:
             batch_id = file_id
 
         # Get Anthropic API credentials
-        api_base = self.anthropic_model_info.resolve_anthropic_api_base(api_base)
-        auth_header: Final = await self.anthropic_model_info.aget_auth_header(
-            api_key, api_base, litellm_params=litellm_params, allow_workload_identity=True
-        )
+        api_base = self.anthropic_model_info.get_api_base(api_base)
+        auth_header: Final = self.anthropic_model_info.get_auth_header(api_key, api_base)
 
         if auth_header is None:
             raise ValueError("Missing Anthropic API Key")
 
         # Construct the Anthropic batch results URL
         encoded_batch_id: Final = encode_url_path_segment(batch_id, field_name="batch_id")
-        results_url: Final = join_api_base(api_base, f"v1/messages/batches/{encoded_batch_id}/results")
+        results_url: Final = f"{api_base.rstrip('/')}/v1/messages/batches/{encoded_batch_id}/results"
 
         # Prepare headers
         headers: Final = {
@@ -123,7 +116,6 @@ class AnthropicFilesHandler:
         api_key: str | None = None,
         timeout: float | httpx.Timeout = 600.0,
         max_retries: int | None = None,
-        litellm_params: Mapping[str, object] | None = None,
     ) -> HttpxBinaryResponseContent | Coroutine[object, object, HttpxBinaryResponseContent]:
         """
         Retrieve file content from Anthropic.
@@ -138,7 +130,6 @@ class AnthropicFilesHandler:
             api_key: Anthropic API key
             timeout: Request timeout
             max_retries: Max retry attempts (unused for now)
-            litellm_params: Deployment params, so a named credential's federation settings reach the mint
 
         Returns:
             HttpxBinaryResponseContent or Coroutine: Binary content wrapped in compatible response format
@@ -148,9 +139,7 @@ class AnthropicFilesHandler:
                 file_content_request=file_content_request,
                 api_base=api_base,
                 api_key=api_key,
-                timeout=timeout,
                 max_retries=max_retries,
-                litellm_params=litellm_params,
             )
         else:
             return asyncio.run(
@@ -160,7 +149,6 @@ class AnthropicFilesHandler:
                     api_key=api_key,
                     timeout=timeout,
                     max_retries=max_retries,
-                    litellm_params=litellm_params,
                 )
             )
 
@@ -197,11 +185,7 @@ class AnthropicFilesHandler:
                 if not line.strip():
                     continue
 
-                anthropic_result: object = _DECODED_JSON.validate_python(json.loads(line))
-                if not isinstance(anthropic_result, dict):
-                    raise TypeError(
-                        f"Anthropic batch result line is not a JSON object: {type(anthropic_result).__name__}"
-                    )
+                anthropic_result = json.loads(line)
                 custom_id = anthropic_result.get("custom_id", "")
                 result = anthropic_result.get("result", {})
                 result_type = result.get("type", "")

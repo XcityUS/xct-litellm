@@ -37,7 +37,6 @@ from collections.abc import Iterator, Mapping, Sequence
 from typing import Final
 
 import httpx
-from pydantic import TypeAdapter
 
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
 from litellm.llms.base_llm.search.transformation import (
@@ -47,7 +46,6 @@ from litellm.llms.base_llm.search.transformation import (
 )
 from litellm.llms.bedrock.base_aws_llm import BaseAWSLLM
 from litellm.llms.bedrock.common_utils import BedrockError
-from litellm.llms.custom_httpx.sse_lines import split_sse_lines
 from litellm.secret_managers.main import get_secret_str
 
 # AgentCore web-search rejects queries longer than 200 characters
@@ -82,8 +80,6 @@ _GATEWAY_HOST_PATTERN: Final = re.compile(r"[a-z0-9-]+\.gateway\.bedrock-agentco
 _SSE_EVENT_SEPARATOR: Final = re.compile(r"\r?\n[ \t]*\r?\n")
 
 _SSE_LINE_PREFIXES: Final = ("event:", "data:", ":", "id:", "retry:")
-
-_JSON_VALUE: Final = TypeAdapter(object)
 
 
 def _gateway_host_match(api_base: str) -> re.Match[str] | None:
@@ -132,7 +128,7 @@ def _parse_result_items(raw_text: object) -> tuple[Mapping[str, object], ...]:
     if not isinstance(raw_text, str):
         return ()
     try:
-        parsed: Final = _JSON_VALUE.validate_python(json.loads(raw_text))
+        parsed: Final = json.loads(raw_text)
     except json.JSONDecodeError:
         return ()
     return _result_items(parsed)
@@ -147,13 +143,11 @@ def _iter_sse_events(text: str) -> Iterator[Mapping[str, object]]:
     progress notifications before the JSON-RPC response.
     """
     for chunk in _SSE_EVENT_SEPARATOR.split(text):
-        payload = "\n".join(
-            line[len("data:") :].lstrip() for line in split_sse_lines(chunk) if line.startswith("data:")
-        )
+        payload = "\n".join(line[len("data:") :].lstrip() for line in chunk.splitlines() if line.startswith("data:"))
         if not payload:
             continue
         try:
-            parsed = _JSON_VALUE.validate_python(json.loads(payload))
+            parsed = json.loads(payload)
         except json.JSONDecodeError:
             continue
         if isinstance(parsed, dict):
@@ -184,7 +178,7 @@ class AgentCoreSearchConfig(BaseSearchConfig, BaseAWSLLM):
         Authentication itself happens in sign_request(): bearer token for
         CUSTOM_JWT gateways, AWS SigV4 for AWS_IAM gateways.
         """
-        return {
+        return {  # mutable-ok: httpx request headers are a dict
             **headers,
             "Content-Type": "application/json",
             "Accept": "application/json, text/event-stream",
@@ -240,13 +234,13 @@ class AgentCoreSearchConfig(BaseSearchConfig, BaseAWSLLM):
                 "Other gateway tools cannot be invoked through this provider."
             )
 
-        return {
+        return {  # mutable-ok: JSON-RPC request bodies are JSON objects
             "jsonrpc": "2.0",
             "id": 1,
             "method": "tools/call",
-            "params": {
+            "params": {  # mutable-ok: JSON-RPC request bodies are JSON objects
                 "name": tool_name,
-                "arguments": {
+                "arguments": {  # mutable-ok: JSON-RPC request bodies are JSON objects
                     "query": joined_query[:AGENTCORE_MAX_QUERY_LENGTH],
                     "maxResults": optional_params.get("max_results", AGENTCORE_DEFAULT_MAX_RESULTS),
                 },
@@ -292,7 +286,7 @@ class AgentCoreSearchConfig(BaseSearchConfig, BaseAWSLLM):
             default_api_base=api_base if gateway_host_match else None,
         )
         if bearer_token:
-            bearer_headers: Final = {
+            bearer_headers: Final = {  # mutable-ok: httpx request headers are a dict
                 **headers,
                 "Authorization": f"Bearer {bearer_token}",
             }
@@ -308,7 +302,7 @@ class AgentCoreSearchConfig(BaseSearchConfig, BaseAWSLLM):
         signing_params: Final = (
             optional_params
             if optional_params.get("aws_region_name") is not None
-            else {
+            else {  # mutable-ok: BaseAWSLLM._sign_request takes optional params as a dict
                 **optional_params,
                 "aws_region_name": self._signing_region(api_base),
             }
@@ -404,7 +398,7 @@ class AgentCoreSearchConfig(BaseSearchConfig, BaseAWSLLM):
         structured: Final = result.get("structuredContent") if isinstance(result, Mapping) else None
         items: Final = text_items or _result_items(structured)
 
-        results: Final = [_to_search_result(item) for item in items]
+        results: Final = [_to_search_result(item) for item in items]  # mutable-ok: pydantic list field
 
         return SearchResponse(results=results, object="search")
 

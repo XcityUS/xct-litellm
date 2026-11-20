@@ -9,13 +9,13 @@ import asyncio
 import json
 import os
 import warnings
-from collections.abc import AsyncGenerator, AsyncIterable
+from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import (
     TYPE_CHECKING,
+    Any,
     Final,
     Literal,
-    TypeVar,
 )
 from urllib.parse import urljoin
 
@@ -39,7 +39,9 @@ from litellm.types.guardrails import GuardrailEventHooks
 from litellm.types.utils import (
     CallTypes,
     CallTypesLiteral,
+    EmbeddingResponse,
     GuardrailStatus,
+    ImageResponse,
     ModelResponseStream,
     TextCompletionResponse,
 )
@@ -51,8 +53,7 @@ SENSITIVE_DATA_DETECTOR_KEYS: Final[list[str]] = ["sensitiveData", "dataDetector
 
 # Type aliases
 MessageRole = Literal["user", "assistant"]
-LLMResponse = object
-_LLMResponseT: Final = TypeVar("_LLMResponseT")
+LLMResponse = Any | ModelResponse | EmbeddingResponse | ImageResponse
 _LEGACY_NOMA_DEPRECATION_WARNED = False
 
 if TYPE_CHECKING:
@@ -246,38 +247,20 @@ class NomaGuardrail(CustomGuardrail):
     ) -> str | None:
         """Shared logic for processing LLM response checks"""
 
+        start_time: Final = datetime.now()
+        extra_data: Final = self.get_guardrail_dynamic_request_body_params(request_data)
+
         if not isinstance(response, litellm.ModelResponse):
             return None
 
-        checked_contents: Final = tuple(
-            [
-                await self._process_choice_check(request_data, response, position, content, user_auth, event_type)
-                for position, content in self._choice_texts(response)
-            ]
-        )
-        return next(iter(checked_contents), None)
+        content = None
+        for choice in response.choices:
+            if isinstance(choice, litellm.Choices) and choice.message.content:
+                content = choice.message.content
+                break
 
-    @staticmethod
-    def _choice_texts(response: litellm.ModelResponse) -> tuple[tuple[int, str], ...]:
-        return tuple(
-            (position, choice.message.content)
-            for position, choice in enumerate(response.choices)
-            if isinstance(choice, litellm.Choices)
-            and isinstance(choice.message.content, str)
-            and choice.message.content
-        )
-
-    async def _process_choice_check(
-        self,
-        request_data: dict[str, object],
-        response: litellm.ModelResponse,
-        position: int,
-        content: str,
-        user_auth: UserAPIKeyAuth,
-        event_type: GuardrailEventHooks | None,
-    ) -> str:
-        start_time: Final = datetime.now()
-        extra_data: Final = self.get_guardrail_dynamic_request_body_params(request_data)
+        if not content or not isinstance(content, str):
+            return None
 
         payload: Final = {
             "input": [
@@ -324,7 +307,7 @@ class NomaGuardrail(CustomGuardrail):
             anonymized_content: Final = self._extract_anonymized_content(response_json, ASSISTANT_ROLE)
             if anonymized_content:
                 # Replace the LLM response content with anonymized version
-                self._replace_llm_response_content(response, anonymized_content, position)
+                self._replace_llm_response_content(response, anonymized_content)
                 verbose_proxy_logger.debug("Noma guardrail anonymized LLM response: %s", anonymized_content)
                 return anonymized_content
 
@@ -504,13 +487,21 @@ class NomaGuardrail(CustomGuardrail):
                 messages[i]["content"] = anonymized_content
                 break
 
-    def _replace_llm_response_content(self, response: LLMResponse, anonymized_content: str, position: int) -> None:
+    def _replace_llm_response_content(self, response: LLMResponse, anonymized_content: str):
+        """
+        Replace the LLM response content with anonymized version.
+
+        Args:
+            response: The original LLM response
+            anonymized_content: The anonymized content to replace with
+        """
         if not isinstance(response, litellm.ModelResponse):
             return
 
-        choice: Final = response.choices[position]
-        if isinstance(choice, litellm.Choices):
-            choice.message.content = anonymized_content
+        # Replace content in all choices
+        for choice in response.choices:
+            if isinstance(choice, litellm.Choices) and choice.message.content:
+                choice.message.content = anonymized_content
 
     async def _check_user_message_background(
         self,
@@ -718,10 +709,10 @@ class NomaGuardrail(CustomGuardrail):
     async def _check_llm_response(
         self,
         request_data: dict,
-        response: _LLMResponseT,
+        response: LLMResponse,
         user_auth: UserAPIKeyAuth,
         event_type: GuardrailEventHooks | None = None,
-    ) -> _LLMResponseT:
+    ) -> Any:
         """Check LLM response for policy violations"""
         content: Final = await self._process_llm_response_check(request_data, response, user_auth, event_type)
         if not content:
@@ -761,7 +752,6 @@ class NomaGuardrail(CustomGuardrail):
                     "requestId": llm_request_id,
                 },
             },
-            timeout=self.timeout,
         )
         response.raise_for_status()
 
@@ -808,7 +798,7 @@ class NomaGuardrail(CustomGuardrail):
     async def async_post_call_streaming_iterator_hook(
         self,
         user_api_key_dict: UserAPIKeyAuth,
-        response: AsyncIterable[ModelResponseStream],
+        response: Any,
         request_data: dict,
     ) -> AsyncGenerator[ModelResponseStream, None]:
         """Process streaming response chunks with Noma guardrail."""
@@ -825,7 +815,6 @@ class NomaGuardrail(CustomGuardrail):
         )
 
         if isinstance(assembled_model_response, ModelResponse):
-            texts_before_check: Final = self._choice_texts(assembled_model_response)
             try:
                 processed_response: Final = await self._check_llm_response(
                     request_data,
@@ -839,11 +828,7 @@ class NomaGuardrail(CustomGuardrail):
                 if self.block_failures:
                     raise
                 verbose_proxy_logger.error("Noma streaming post-call hook failed: %s", e)
-                if self._choice_texts(assembled_model_response) == texts_before_check:
-                    for chunk in all_chunks:
-                        yield chunk
-                    return
-                async for chunk in MockResponseIterator(model_response=assembled_model_response):
+                for chunk in all_chunks:
                     yield chunk
                 return
 

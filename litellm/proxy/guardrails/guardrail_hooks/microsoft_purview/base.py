@@ -3,18 +3,15 @@ import time
 import uuid
 from collections import OrderedDict
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
-import httpx
 from typing_extensions import NotRequired, TypedDict
 
 from litellm._logging import verbose_proxy_logger
-from litellm.litellm_core_utils.core_helpers import attribute_or_none, decoded_json_object, iter_items, json_contains
 from litellm.litellm_core_utils.prompt_templates.common_utils import (
     convert_content_list_to_str,
 )
 from litellm.litellm_core_utils.url_utils import encode_url_path_segment
-from litellm.llms.anthropic.common_utils import tool_calls_with_server_tool_calls
 from litellm.llms.custom_httpx.http_handler import (
     get_async_httpx_client,
     httpxSpecialProvider,
@@ -35,17 +32,6 @@ SCOPE_CACHE_TTL_SECONDS: Final = 3600.0
 class GraphTokenResponse(TypedDict):
     access_token: str
     expires_in: NotRequired[int]
-
-
-def _policy_action_blocks(action: object) -> bool:
-    policy_action: Final = decoded_json_object(action)
-    odata_type: Final = policy_action.get("@odata.type", "")
-    action_field: Final = policy_action.get("action", "")
-
-    if json_contains(odata_type, "restrictAccessAction") or action_field == "restrictAccess":
-        restriction: Final = policy_action.get("restrictionAction", "")
-        return restriction == "block"
-    return False
 
 
 class PurviewGuardrailBase:
@@ -70,7 +56,6 @@ class PurviewGuardrailBase:
         # (typically CustomGuardrail).
         super().__init__(**kwargs)
 
-        self.timeout: float | httpx.Timeout | None
         self.async_handler = get_async_httpx_client(llm_provider=httpxSpecialProvider.GuardrailCallback)
         self.tenant_id = tenant_id
         self.client_id = client_id
@@ -122,7 +107,6 @@ class PurviewGuardrailBase:
             url=url,
             data=data,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
-            timeout=self.timeout,
         )
         response.raise_for_status()
         token_data: Final[GraphTokenResponse] = response.json()
@@ -159,7 +143,7 @@ class PurviewGuardrailBase:
             headers.update(extra_headers)
 
         verbose_proxy_logger.debug("Purview Graph POST %s", url)
-        response: Final = await self.async_handler.post(url=url, headers=headers, json=json_body, timeout=self.timeout)
+        response: Final = await self.async_handler.post(url=url, headers=headers, json=json_body)
         response.raise_for_status()
         response_json: Final[dict[str, object]] = response.json()
         response_headers: Final = dict(response.headers)
@@ -376,11 +360,16 @@ class PurviewGuardrailBase:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _should_block(response: Mapping[str, object]) -> bool:
+    def _should_block(response: dict[str, Any]) -> bool:
         """Return True if any policyAction requires blocking."""
-        for action in iter_items(response.get("policyActions", [])):
-            if _policy_action_blocks(action):
-                return True
+        for action in response.get("policyActions", []):
+            odata_type = action.get("@odata.type", "")
+            action_field = action.get("action", "")
+
+            if "restrictAccessAction" in odata_type or action_field == "restrictAccess":
+                restriction = action.get("restrictionAction", "")
+                if restriction == "block":
+                    return True
         return False
 
     # ------------------------------------------------------------------
@@ -442,13 +431,15 @@ class PurviewGuardrailBase:
         args: Final[list[str]] = []
 
         # tool_calls: [{"function": {"arguments": "..."}}]
-        tool_calls: Final = tool_calls_with_server_tool_calls(message)
+        tool_calls: Final[Sequence[object] | None] = (
+            message.get("tool_calls") if isinstance(message, dict) else getattr(message, "tool_calls", None)
+        )
         if tool_calls:
             for tc in tool_calls:
-                fn = tc.get("function") if isinstance(tc, dict) else attribute_or_none(tc, "function")
+                fn = tc.get("function") if isinstance(tc, dict) else getattr(tc, "function", None)
                 if fn is None:
                     continue
-                arguments = fn.get("arguments") if isinstance(fn, dict) else attribute_or_none(fn, "arguments")
+                arguments = fn.get("arguments") if isinstance(fn, dict) else getattr(fn, "arguments", None)
                 if isinstance(arguments, str) and arguments.strip():
                     args.append(arguments)
 

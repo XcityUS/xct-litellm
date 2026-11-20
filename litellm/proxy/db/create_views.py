@@ -2,7 +2,6 @@ from collections.abc import Mapping, Sequence
 from typing import Final, Protocol
 
 from litellm import verbose_logger
-from litellm.proxy.db.db_span import db_span
 
 
 class SupportsExecuteRaw(Protocol):
@@ -39,8 +38,7 @@ async def create_view_tolerating_race(db: SupportsExecuteRaw, view_name: str, dd
     a detached startup task and the remaining views are never created.
     """
     try:
-        async with db_span("create_view", view_name):
-            await db.execute_raw(ddl)
+        await db.execute_raw(ddl)
         verbose_logger.debug("%s Created!", view_name)
     except Exception as e:
         if not any(marker in str(e).lower() for marker in _VIEW_ALREADY_EXISTS_MARKERS):
@@ -51,7 +49,7 @@ async def create_view_tolerating_race(db: SupportsExecuteRaw, view_name: str, dd
 async def create_missing_views(db: SupportsRawQueries) -> None:
     """
     --------------------------------------------------
-    NOTE: Copy of `litellm/scripts/db/create_views.py`.
+    NOTE: Copy of `litellm/db_scripts/create_views.py`.
     --------------------------------------------------
     Checks if the LiteLLM_VerificationTokenView and MonthlyGlobalSpend exists in the user's db.
 

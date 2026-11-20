@@ -22,7 +22,7 @@ def is_tokens_or_list_of_tokens(value: list):
     return False
 
 
-def transform_prompt(
+def _transform_prompt(
     messages: list[AllMessageValues] | list[OpenAITextCompletionUserMessage],
 ) -> AllPromptValues:
     if len(messages) == 1:  # base case
@@ -43,6 +43,3 @@ def transform_prompt(
                 raise e
         openai_prompt = prompt_str_list
     return openai_prompt
-
-
-_transform_prompt = transform_prompt

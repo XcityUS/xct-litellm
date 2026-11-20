@@ -21,7 +21,6 @@ import pytest
 from budget_client import BudgetClient, is_budget_block
 from e2e_config import unique_marker
 from e2e_http import StreamingResponse, require_successful_call
-from e2e_metadata import Domain, Mode, Provider, Route, Subject, meta
 from lifecycle import ResourceManager
 from models import KeyGenerateBody, LiteLLMParamsBody, ModelInfoBody, ModelNewBody
 
@@ -103,14 +102,6 @@ def drained(client: BudgetClient) -> Iterator[DrainedPool]:
 
 class TestModelAccessGroupBudget:
     @pytest.mark.covers("quota_management.budget.model_access_group.blocks_over_limit")
-    @meta(
-        Subject(
-            domain=Domain.SPEND_BUDGETS,
-            providers=(Provider.OPENAI,),
-            models=(BACKEND,),
-            mode=Mode.NONSTREAM,
-        )
-    )
     def test_the_key_that_drained_the_pool_stays_blocked(
         self, client: BudgetClient, drained: DrainedPool
     ) -> None:
@@ -123,14 +114,6 @@ class TestModelAccessGroupBudget:
         )
 
     @pytest.mark.covers("quota_management.budget.model_access_group.enforced_across_keys")
-    @meta(
-        Subject(
-            domain=Domain.SPEND_BUDGETS,
-            providers=(Provider.OPENAI,),
-            models=(BACKEND,),
-            mode=Mode.NONSTREAM,
-        )
-    )
     def test_a_key_that_spent_nothing_is_blocked_by_the_shared_pool(
         self, client: BudgetClient, resources: ResourceManager, drained: DrainedPool
     ) -> None:
@@ -144,14 +127,6 @@ class TestModelAccessGroupBudget:
         )
 
     @pytest.mark.covers("quota_management.budget.model_access_group.isolates_per_group")
-    @meta(
-        Subject(
-            domain=Domain.SPEND_BUDGETS,
-            providers=(Provider.OPENAI,),
-            models=(BACKEND,),
-            mode=Mode.NONSTREAM,
-        )
-    )
     def test_a_drained_group_does_not_block_a_different_group(
         self, client: BudgetClient, resources: ResourceManager, drained: DrainedPool
     ) -> None:
@@ -166,14 +141,6 @@ class TestModelAccessGroupBudget:
         require_successful_call(result)
 
     @pytest.mark.covers("quota_management.budget.model_access_group.reports_spend")
-    @meta(
-        Subject(
-            domain=Domain.SPEND_BUDGETS,
-            route=Route.BUDGET_MANAGEMENT,
-            providers=(Provider.OPENAI,),
-            models=(BACKEND,),
-        )
-    )
     def test_the_budget_read_reports_the_spend_drawn_against_the_pool(
         self, client: BudgetClient, drained: DrainedPool
     ) -> None:

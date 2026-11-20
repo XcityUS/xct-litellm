@@ -2,8 +2,7 @@ import configparser
 import os
 import time
 import uuid
-from collections.abc import Mapping, Sequence
-from typing import Final
+from typing import Any, Final
 
 CONFIG_FILE_PATH_DEFAULT: Final[str] = "~/.opik.config"
 
@@ -94,14 +93,14 @@ def create_usage_object(usage):
     return usage_dict
 
 
-def _remove_nulls(x: Mapping[str, object]) -> dict[str, object]:
+def _remove_nulls(x: dict[str, Any]) -> dict[str, Any]:
     """Remove None values from dict."""
     return {k: v for k, v in x.items() if v is not None}
 
 
 def get_traces_and_spans_from_payload(
-    payload: Sequence[Mapping[str, object]],
-) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    payload: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """
     Separate traces and spans from payload.
 

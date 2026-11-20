@@ -12,7 +12,6 @@ import time
 from typing import TYPE_CHECKING, Any, Final
 
 import litellm
-from litellm._internal_context import with_service_target
 from litellm._logging import verbose_proxy_logger
 from litellm.caching.in_memory_cache import InMemoryCache
 from litellm.litellm_core_utils.core_helpers import get_litellm_metadata_from_kwargs
@@ -21,8 +20,6 @@ from litellm.types.integrations.slack_alerting import (
     MAX_OLDEST_HANGING_REQUESTS_TO_CHECK,
     HangingRequestData,
 )
-
-_REQUEST_STATUS_TARGET: Final = "request_status"
 
 if TYPE_CHECKING:
     from litellm.integrations.SlackAlerting.slack_alerting import SlackAlerting
@@ -85,7 +82,6 @@ class AlertingHangingRequestCheck:
         )
         return
 
-    @with_service_target(_REQUEST_STATUS_TARGET)
     async def send_alerts_for_hanging_requests(self):
         """
         Send alerts for hanging requests
@@ -115,16 +111,14 @@ class AlertingHangingRequestCheck:
             if hanging_request_data.alerted:
                 continue
 
+            request_status = await proxy_logging_obj.internal_usage_cache.async_get_cache(
+                key=f"request_status:{hanging_request_data.request_id}",
+                litellm_parent_otel_span=None,
+                local_only=True,
+            )
             # this means the request status was either success or fail
             # and is not hanging
-            if (
-                await proxy_logging_obj.internal_usage_cache.async_get_cache(
-                    key=f"request_status:{hanging_request_data.request_id}",
-                    litellm_parent_otel_span=None,
-                    local_only=True,
-                )
-                is not None
-            ):
+            if request_status is not None:
                 # clear this request from hanging request cache since the request was either success or failed
                 self.hanging_request_cache._remove_key(
                     key=request_id,

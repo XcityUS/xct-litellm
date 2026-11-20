@@ -1,5 +1,4 @@
-from collections.abc import Mapping
-from typing import Final
+from typing import Any, Final
 
 from .flux_pro_v11_ultra_transformation import FalAIFluxProV11UltraConfig
 
@@ -29,7 +28,7 @@ class FalAIFluxSchnellConfig(FalAIFluxProV11UltraConfig):
 
     def map_openai_params(
         self,
-        non_default_params: Mapping[str, object],
+        non_default_params: dict,
         optional_params: dict,
         model: str,
         drop_params: bool,
@@ -66,7 +65,7 @@ class FalAIFluxSchnellConfig(FalAIFluxProV11UltraConfig):
 
         return optional_params
 
-    def _map_image_size(self, size: object) -> object:
+    def _map_image_size(self, size: Any) -> Any:
         if isinstance(size, dict):
             return size
 

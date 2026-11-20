@@ -1,8 +1,6 @@
-from collections.abc import Mapping
-from typing import Final, cast
+from typing import Any, Final, cast
 
 import litellm
-from litellm.llms.base_llm.videos.async_task_utils import OPENROUTER_VIDEO_FIELDS
 from litellm.llms.base_llm.videos.transformation import BaseVideoConfig
 from litellm.types.videos.main import VideoCreateOptionalRequestParams
 from litellm.utils import filter_out_litellm_params
@@ -16,7 +14,6 @@ class VideoGenerationRequestUtils:
         model: str,
         video_generation_provider_config: BaseVideoConfig,
         video_generation_optional_params: VideoCreateOptionalRequestParams,
-        drop_params: bool = False,
     ) -> dict:
         """
         Get optional parameters for the video generation API.
@@ -33,7 +30,7 @@ class VideoGenerationRequestUtils:
         mapped_params: Final = video_generation_provider_config.map_openai_params(
             video_create_optional_params=video_generation_optional_params,
             model=model,
-            drop_params=drop_params or litellm.drop_params is True,
+            drop_params=litellm.drop_params,
         )
 
         # Merge extra_body params if present (for provider-specific parameters)
@@ -49,7 +46,7 @@ class VideoGenerationRequestUtils:
 
     @staticmethod
     def get_requested_video_generation_optional_param(
-        params: Mapping[str, object],
+        params: dict[str, Any],
     ) -> VideoCreateOptionalRequestParams:
         """
         Filter parameters to only include those defined in VideoCreateOptionalRequestParams.
@@ -62,8 +59,9 @@ class VideoGenerationRequestUtils:
         """
         params = dict(params or {})
 
-        nested_kwargs: Final = params.get("kwargs", {})
-        raw_kwargs: Final[dict[str, object]] = nested_kwargs if isinstance(nested_kwargs, dict) else {}
+        raw_kwargs = params.get("kwargs", {})
+        if not isinstance(raw_kwargs, dict):
+            raw_kwargs = {}
 
         kwargs_extra_body: Final = raw_kwargs.pop("extra_body", None)
         top_level_extra_body: Final = params.get("extra_body")
@@ -77,12 +75,12 @@ class VideoGenerationRequestUtils:
 
         cleaned_kwargs: Final = filter_out_litellm_params(kwargs={k: v for k, v in raw_kwargs.items() if v is not None})
 
-        optional_params: Final[dict[str, object]] = {
+        optional_params: Final[dict[str, Any]] = {
             **base_params,
             **cleaned_kwargs,
         }
 
-        merged_extra_body: dict[str, object] = {}
+        merged_extra_body: dict[str, Any] = {}
         for extra_body_candidate in (top_level_extra_body, kwargs_extra_body):
             if isinstance(extra_body_candidate, dict):
                 for key, value in extra_body_candidate.items():
@@ -93,9 +91,7 @@ class VideoGenerationRequestUtils:
             merged_extra_body = filter_out_litellm_params(kwargs=merged_extra_body)
             if merged_extra_body:
                 optional_params["extra_body"] = merged_extra_body
-                optional_params.update(
-                    {key: value for key, value in merged_extra_body.items() if key not in OPENROUTER_VIDEO_FIELDS}
-                )
+                optional_params.update(merged_extra_body)
 
         optional_params.pop("timeout", None)
 

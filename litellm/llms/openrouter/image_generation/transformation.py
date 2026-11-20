@@ -27,15 +27,11 @@ Response format:
 }
 """
 
-from collections.abc import Iterable, Mapping
-from typing import TYPE_CHECKING, Any, Final, cast
+from typing import TYPE_CHECKING, Any, Final
 
 import httpx
-from pydantic import ConfigDict, TypeAdapter
 
 import litellm
-from litellm.litellm_core_utils.hidden_params import HIDDEN_PARAMS_ATTR, set_hidden_params
-from litellm.litellm_core_utils.url_utils import ensure_api_route
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.llms.base_llm.image_generation.transformation import (
     BaseImageGenerationConfig,
@@ -54,16 +50,11 @@ from litellm.types.utils import (
 )
 
 if TYPE_CHECKING:
+    import tiktoken
+
     from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
-    from litellm.litellm_core_utils.tokenizer import Encoding as Tokenizer
 else:
     LiteLLMLoggingObj = Any
-
-_DECODED_JSON: Final = TypeAdapter(object)
-_JSON_DICT: Final = TypeAdapter(dict[str, object], config=ConfigDict(hide_input_in_errors=True))
-_JSON_OBJECT: Final = TypeAdapter(Mapping[str, object], config=ConfigDict(hide_input_in_errors=True))
-_JSON_OBJECTS: Final = TypeAdapter(Iterable[Mapping[str, object]], config=ConfigDict(hide_input_in_errors=True))
-_STR: Final = TypeAdapter(str, config=ConfigDict(strict=True, hide_input_in_errors=True))
 
 
 class OpenRouterImageGenerationConfig(BaseImageGenerationConfig):
@@ -229,31 +220,21 @@ class OpenRouterImageGenerationConfig(BaseImageGenerationConfig):
 
             cost: Final = usage_data.get("cost")
             if cost is not None:
-                if not hasattr(model_response, HIDDEN_PARAMS_ATTR):
-                    set_hidden_params(model_response, {})
-                hidden_params: Final = cast(  # cast-ok: preserve mapping operations on dynamic response metadata
-                    dict[str, object], getattr(model_response, HIDDEN_PARAMS_ATTR)
+                if not hasattr(model_response, "_hidden_params"):
+                    model_response._hidden_params = {}
+                if "additional_headers" not in model_response._hidden_params:
+                    model_response._hidden_params["additional_headers"] = {}
+                model_response._hidden_params["additional_headers"]["llm_provider-x-litellm-response-cost"] = float(
+                    cost
                 )
-                if "additional_headers" not in hidden_params:
-                    hidden_params["additional_headers"] = {}
-                additional_headers: Final = cast(  # cast-ok: preserve mapping operations on response metadata
-                    dict[str, object], hidden_params["additional_headers"]
-                )
-                additional_headers["llm_provider-x-litellm-response-cost"] = float(cost)
 
             cost_details: Final = usage_data.get("cost_details", {})
             if cost_details:
-                cost_details_hidden_params: Final = cast(  # cast-ok: preserve dynamic mapping behavior
-                    dict[str, object], getattr(model_response, HIDDEN_PARAMS_ATTR)
-                )
-                if "response_cost_details" not in cost_details_hidden_params:
-                    cost_details_hidden_params["response_cost_details"] = {}
-                response_cost_details: Final = cast(  # cast-ok: preserve mapping operations on response metadata
-                    dict[str, object], cost_details_hidden_params["response_cost_details"]
-                )
-                response_cost_details.update(cost_details)
+                if "response_cost_details" not in model_response._hidden_params:
+                    model_response._hidden_params["response_cost_details"] = {}
+                model_response._hidden_params["response_cost_details"].update(cost_details)
 
-        model_response.hidden_params["model"] = response_json.get("model", model)
+        model_response._hidden_params["model"] = response_json.get("model", model)
 
     def get_complete_url(
         self,
@@ -271,7 +252,10 @@ class OpenRouterImageGenerationConfig(BaseImageGenerationConfig):
         Default: https://openrouter.ai/api/v1/chat/completions
         """
         if api_base:
-            return ensure_api_route(api_base, "chat/completions")
+            if not api_base.endswith("/chat/completions"):
+                api_base = api_base.rstrip("/")
+                return f"{api_base}/chat/completions"
+            return api_base
 
         return "https://openrouter.ai/api/v1/chat/completions"
 
@@ -335,7 +319,7 @@ class OpenRouterImageGenerationConfig(BaseImageGenerationConfig):
         request_data: dict,
         optional_params: dict,
         litellm_params: dict,
-        encoding: "Tokenizer | None",
+        encoding: "tiktoken.Encoding | None",
         api_key: str | None = None,
         json_mode: bool | None = None,
     ) -> ImageResponse:
@@ -360,7 +344,7 @@ class OpenRouterImageGenerationConfig(BaseImageGenerationConfig):
             ImageResponse: Populated image response
         """
         try:
-            response_json: Final = _DECODED_JSON.validate_python(raw_response.json())
+            response_json: Final = raw_response.json()
         except Exception as e:
             raise OpenRouterException(
                 message=f"Error parsing OpenRouter response: {e}",
@@ -372,16 +356,15 @@ class OpenRouterImageGenerationConfig(BaseImageGenerationConfig):
             model_response.data = []
 
         try:
-            response_object: Final = _JSON_DICT.validate_python(response_json)
-            choices: Final = _JSON_OBJECTS.validate_python(response_object.get("choices", []))
+            choices: Final = response_json.get("choices", [])
 
             for choice in choices:
-                message = _JSON_OBJECT.validate_python(choice.get("message", {}))
-                images = _JSON_OBJECTS.validate_python(message.get("images", []))
+                message = choice.get("message", {})
+                images = message.get("images", [])
 
                 for image_data in images:
-                    image_url_obj = _JSON_OBJECT.validate_python(image_data.get("image_url", {}))
-                    image_url = _STR.validate_python(image_url_obj.get("url") or "")
+                    image_url_obj = image_data.get("image_url", {})
+                    image_url = image_url_obj.get("url")
 
                     if image_url:
                         if image_url.startswith("data:"):
@@ -407,7 +390,7 @@ class OpenRouterImageGenerationConfig(BaseImageGenerationConfig):
                             )
 
             # Extract and set usage and cost information
-            self._set_usage_and_cost(model_response, response_object, model)
+            self._set_usage_and_cost(model_response, response_json, model)
 
             return model_response
 

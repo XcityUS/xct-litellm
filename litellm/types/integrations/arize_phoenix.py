@@ -1,9 +1,9 @@
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel
 
 from .arize import Protocol
 
 
-class ArizePhoenixConfig(LiteLLMBaseModel):
+class ArizePhoenixConfig(BaseModel):
     otlp_auth_headers: str | None = None
     protocol: Protocol
     endpoint: str

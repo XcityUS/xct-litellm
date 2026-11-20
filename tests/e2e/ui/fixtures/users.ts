@@ -6,7 +6,6 @@ import {
   INTERNAL_VIEWER_STORAGE_PATH,
   TEAM_ADMIN_STORAGE_PATH,
 } from "../constants";
-import { masterKey } from "../helpers/traffic";
 
 export enum Role {
   ProxyAdmin = "proxy_admin",
@@ -21,7 +20,7 @@ export type SeedApiRole = "proxy_admin_viewer" | "internal_user" | "internal_use
 export const users: Record<Role, { email: string; password: string; seedApiRole?: SeedApiRole }> = {
   [Role.ProxyAdmin]: {
     email: "admin",
-    password: masterKey(),
+    password: process.env.LITELLM_MASTER_KEY || "sk-1234",
   },
   [Role.ProxyAdminViewer]: {
     email: "adminviewer@test.local",

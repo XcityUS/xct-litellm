@@ -24,12 +24,11 @@ from litellm.types.llms.bedrock import (
 from litellm.types.llms.openai import AllMessageValues
 from litellm.types.utils import ModelResponse
 
-from ...common_utils import served_service_tier
 from ..converse_transformation import AmazonConverseConfig
 from .base_invoke_transformation import AmazonInvokeConfig
 
 if TYPE_CHECKING:
-    from litellm.litellm_core_utils.tokenizer import Encoding as Tokenizer
+    import tiktoken
 
 _CachePointCarrier = TypeVar("_CachePointCarrier", SystemContentBlock, ContentBlock)
 _INJECTION_POINTS: Final = TypeAdapter(tuple[Mapping[str, object], ...])
@@ -93,16 +92,8 @@ class AmazonInvokeNovaConfig(AmazonInvokeConfig, AmazonConverseConfig):
         optional_params: dict,
         model: str,
         drop_params: bool,
-        model_info: Mapping[str, object] | None = None,
     ) -> dict:
-        return AmazonConverseConfig.map_openai_params(
-            self,
-            {key: value for key, value in non_default_params.items() if key != "requestMetadata"},
-            optional_params,
-            model,
-            drop_params,
-            model_info,
-        )
+        return AmazonConverseConfig.map_openai_params(self, non_default_params, optional_params, model, drop_params)
 
     def transform_request(
         self,
@@ -116,9 +107,7 @@ class AmazonInvokeNovaConfig(AmazonInvokeConfig, AmazonConverseConfig):
             self,
             model=model,
             messages=messages,
-            optional_params=_without_tool_config_injection_points(
-                {key: value for key, value in optional_params.items() if key != "requestMetadata"}
-            ),
+            optional_params=_without_tool_config_injection_points(optional_params),
             litellm_params=litellm_params,
             headers=headers,
         )
@@ -139,11 +128,11 @@ class AmazonInvokeNovaConfig(AmazonInvokeConfig, AmazonConverseConfig):
         messages: list[AllMessageValues],
         optional_params: dict,
         litellm_params: dict,
-        encoding: "Tokenizer | None",
+        encoding: "tiktoken.Encoding | None",
         api_key: str | None = None,
         json_mode: bool | None = None,
     ) -> ModelResponse:
-        response: Final = AmazonConverseConfig.transform_response(
+        return AmazonConverseConfig.transform_response(
             self,
             model,
             raw_response,
@@ -157,10 +146,6 @@ class AmazonInvokeNovaConfig(AmazonInvokeConfig, AmazonConverseConfig):
             api_key,
             json_mode,
         )
-        served_tier: Final = served_service_tier(raw_response.headers)
-        if served_tier is None:
-            return response
-        return response.model_copy(update={"service_tier": served_tier})
 
     @staticmethod
     def _inline_cache_points(request: BedrockInvokeNovaRequest) -> BedrockInvokeNovaRequest:

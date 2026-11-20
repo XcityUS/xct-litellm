@@ -3,23 +3,8 @@ from collections.abc import Iterator
 from typing import Any, Final
 
 import requests
-from pydantic import ConfigDict, TypeAdapter
 
-from .exceptions import StreamError, UnauthorizedError
-
-_DECODED_JSON: Final = TypeAdapter(object)
-
-_SSE_LINE: Final[TypeAdapter[bytes | bytearray]] = TypeAdapter(
-    bytes | bytearray, config=ConfigDict(arbitrary_types_allowed=True, strict=True, hide_input_in_errors=True)
-)
-
-
-def _raise_if_error_frame(chunk: object) -> None:
-    match chunk:
-        case {"error": object() as error} if error:
-            raise StreamError(error)
-        case _:
-            return
+from .exceptions import UnauthorizedError
 
 
 class ChatClient:
@@ -61,7 +46,7 @@ class ChatClient:
         frequency_penalty: float | None = None,
         user: str | None = None,
         return_request: bool = False,
-    ) -> object | requests.Request:
+    ) -> dict[str, Any] | requests.Request:
         """
         Create a chat completion.
 
@@ -116,7 +101,7 @@ class ChatClient:
         try:
             response: Final = session.send(request.prepare(), timeout=self._timeout)
             response.raise_for_status()
-            return _DECODED_JSON.validate_python(response.json())
+            return response.json()
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
                 raise UnauthorizedError(e)
@@ -153,7 +138,6 @@ class ChatClient:
 
         Raises:
             UnauthorizedError: If the request fails with a 401 status code
-            StreamError: If the server ends the stream with an error event
             requests.exceptions.RequestException: If the request fails with any other error
         """
         url: Final = f"{self._base_url}/chat/completions"
@@ -186,20 +170,18 @@ class ChatClient:
             response.raise_for_status()
 
             # Parse SSE stream
-            lines: Final[Iterator[object]] = response.iter_lines()
-            for line in lines:
+            for line in response.iter_lines():
                 if line:
-                    line = _SSE_LINE.validate_python(line).decode("utf-8")
+                    line = line.decode("utf-8")
                     if line.startswith("data: "):
                         data_str = line[6:]  # Remove 'data: ' prefix
                         if data_str.strip() == "[DONE]":
                             break
                         try:
                             chunk = json.loads(data_str)
+                            yield chunk
                         except json.JSONDecodeError:
                             continue
-                        _raise_if_error_frame(chunk)
-                        yield chunk
 
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:

@@ -2,6 +2,7 @@ from typing import Any, Final, Literal, Optional, Union
 
 from fastapi import HTTPException
 from pydantic import (
+    BaseModel,
     ConfigDict,
     EmailStr,
     Field,
@@ -12,9 +13,6 @@ from pydantic import (
 )
 from pydantic_core.core_schema import SerializerFunctionWrapHandler
 
-from litellm.types.llms.base import LiteLLMBaseModel
-from litellm.types.proxy.management_endpoints.user_requests import NewUserRequest
-
 SCIM_ENTERPRISE_USER_SCHEMA: Final = "urn:ietf:params:scim:schemas:extension:enterprise:2.0:User"
 SCIM_ENTERPRISE_METADATA_KEY: Final = "scim_enterprise"
 SCIM_ENTITLEMENTS_METADATA_KEY: Final = "scim_entitlements"
@@ -22,20 +20,9 @@ SCIM_ROLES_METADATA_KEY: Final = "scim_roles"
 
 SCIM_MANAGED_TEAM_METADATA_KEY: Final = "scim_managed"
 SCIM_TEAM_DATA_METADATA_KEY: Final = "scim_data"
-_SCIM_SERIALIZED_FIELDS_ADAPTER: Final = TypeAdapter(
-    dict[str, object], config=ConfigDict(strict=True, hide_input_in_errors=True)
-)
 
 
-class SCIMNewUserRequest(NewUserRequest):
-    """Preserve opaque directory IDs when provisioning SCIM users and group members."""
-
-    model_config = ConfigDict(frozen=True)
-
-    user_id: str | None = None
-
-
-class LiteLLM_UserScimMetadata(LiteLLMBaseModel):
+class LiteLLM_UserScimMetadata(BaseModel):
     """
     Scim metadata stored in LiteLLM_UserTable.metadata
     """
@@ -45,14 +32,14 @@ class LiteLLM_UserScimMetadata(LiteLLMBaseModel):
 
 
 # SCIM Resource Models
-class SCIMResource(LiteLLMBaseModel):
+class SCIMResource(BaseModel):
     schemas: list[str]
     id: str | None = None
     externalId: str | None = None
     meta: dict[str, object] | None = None
 
 
-class SCIMUserName(LiteLLMBaseModel):
+class SCIMUserName(BaseModel):
     familyName: str | None = None
     givenName: str | None = None
     formatted: str | None = None
@@ -61,22 +48,20 @@ class SCIMUserName(LiteLLMBaseModel):
     honorificSuffix: str | None = None
 
 
-class SCIMUserEmail(LiteLLMBaseModel):
+class SCIMUserEmail(BaseModel):
     value: EmailStr
     type: str | None = None
     primary: bool | None = None
 
 
-class SCIMUserGroup(LiteLLMBaseModel):
+class SCIMUserGroup(BaseModel):
     value: str  # Group ID
     display: str | None = None  # Group display name
     type: str | None = "direct"  # direct or indirect
 
 
-class SCIMMultiValuedAttribute(LiteLLMBaseModel):
-    model_config = ConfigDict(extra="allow")
-
-    value: str | None = None
+class SCIMMultiValuedAttribute(BaseModel):
+    value: str
     display: str | None = None
     type: str | None = None
     primary: bool | None = None
@@ -97,7 +82,7 @@ SCIM_MULTI_VALUED_ATTRIBUTE_METADATA_KEYS: Final = {
 }
 
 
-class SCIMUserManager(LiteLLMBaseModel):
+class SCIMUserManager(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     value: str | None = None
@@ -105,7 +90,7 @@ class SCIMUserManager(LiteLLMBaseModel):
     ref: str | None = Field(default=None, alias="$ref")
 
 
-class SCIMEnterpriseUser(LiteLLMBaseModel):
+class SCIMEnterpriseUser(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     employeeNumber: str | None = None
@@ -135,7 +120,7 @@ class SCIMUser(SCIMResource):
 
     @model_serializer(mode="wrap")
     def _omit_absent_optional_blocks(self, handler: SerializerFunctionWrapHandler) -> dict[str, object]:
-        dumped: Final = _SCIM_SERIALIZED_FIELDS_ADAPTER.validate_python(handler(self))
+        dumped: Final = handler(self)
         if self.enterprise_user is None:
             dumped.pop(SCIM_ENTERPRISE_USER_SCHEMA, None)
             dumped.pop("enterprise_user", None)
@@ -146,7 +131,7 @@ class SCIMUser(SCIMResource):
         return dumped
 
 
-class SCIMMember(LiteLLMBaseModel):
+class SCIMMember(BaseModel):
     value: str  # User ID
     display: str | None = None  # Username or email
     type: str | None = None
@@ -165,15 +150,15 @@ class SCIMGroup(SCIMResource):
     members: list[SCIMMember] | None = None
 
 
-class SCIMPlaceholderMergeResult(LiteLLMBaseModel):
+class SCIMPlaceholderMergeResult(BaseModel):
     placeholder_user_id: str
     merged_into_user_id: str
     team_ids: tuple[str, ...]
 
 
 # SCIM List Response Models
-class SCIMListResponse(LiteLLMBaseModel):
-    schemas: list[str] = Field(default=["urn:ietf:params:scim:api:messages:2.0:ListResponse"])
+class SCIMListResponse(BaseModel):
+    schemas: list[str] = ["urn:ietf:params:scim:api:messages:2.0:ListResponse"]
     totalResults: int
     startIndex: int | None = 1
     itemsPerPage: int | None = 10
@@ -181,7 +166,7 @@ class SCIMListResponse(LiteLLMBaseModel):
 
 
 # SCIM PATCH Operation Models
-class SCIMPatchOperation(LiteLLMBaseModel):
+class SCIMPatchOperation(BaseModel):
     op: str
     path: str | None = None
     value: object | None = None
@@ -197,21 +182,21 @@ class SCIMPatchOperation(LiteLLMBaseModel):
         return v
 
 
-class SCIMPatchOp(LiteLLMBaseModel):
-    schemas: list[str] = Field(default=["urn:ietf:params:scim:api:messages:2.0:PatchOp"])
+class SCIMPatchOp(BaseModel):
+    schemas: list[str] = ["urn:ietf:params:scim:api:messages:2.0:PatchOp"]
     Operations: list[SCIMPatchOperation]
 
 
 # SCIM Service Provider Configuration Models
-class SCIMFeature(LiteLLMBaseModel):
+class SCIMFeature(BaseModel):
     supported: bool
     maxOperations: int | None = None
     maxPayloadSize: int | None = None
     maxResults: int | None = None
 
 
-class SCIMServiceProviderConfig(LiteLLMBaseModel):
-    schemas: list[str] = Field(default=["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"])
+class SCIMServiceProviderConfig(BaseModel):
+    schemas: list[str] = ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"]
     patch: SCIMFeature = SCIMFeature(supported=True)
     bulk: SCIMFeature = SCIMFeature(supported=False)
     filter: SCIMFeature = SCIMFeature(supported=False)
@@ -223,7 +208,7 @@ class SCIMServiceProviderConfig(LiteLLMBaseModel):
 
 
 # SCIM ResourceType Models (RFC 7643 Section 6)
-class SCIMSchemaExtension(LiteLLMBaseModel):
+class SCIMSchemaExtension(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     schema_: str  # aliased to "schema" in serialization
@@ -235,10 +220,10 @@ class SCIMSchemaExtension(LiteLLMBaseModel):
         return d
 
 
-class SCIMResourceType(LiteLLMBaseModel):
+class SCIMResourceType(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
-    schemas: list[str] = Field(default=["urn:ietf:params:scim:schemas:core:2.0:ResourceType"])
+    schemas: list[str] = ["urn:ietf:params:scim:schemas:core:2.0:ResourceType"]
     id: str
     name: str
     description: str | None = None
@@ -257,7 +242,7 @@ class SCIMResourceType(LiteLLMBaseModel):
 
 
 # SCIM Schema Models (RFC 7643 Section 7)
-class SCIMSchemaAttribute(LiteLLMBaseModel):
+class SCIMSchemaAttribute(BaseModel):
     name: str
     type: str
     multiValued: bool = False
@@ -275,10 +260,10 @@ class SCIMSchemaAttribute(LiteLLMBaseModel):
         return d
 
 
-class SCIMSchema(LiteLLMBaseModel):
-    schemas: list[str] = Field(default=["urn:ietf:params:scim:schemas:core:2.0:Schema"])
+class SCIMSchema(BaseModel):
+    schemas: list[str] = ["urn:ietf:params:scim:schemas:core:2.0:Schema"]
     id: str
     name: str
     description: str | None = None
-    attributes: list[SCIMSchemaAttribute] = Field(default=[])
+    attributes: list[SCIMSchemaAttribute] = []
     meta: dict[str, object] | None = None

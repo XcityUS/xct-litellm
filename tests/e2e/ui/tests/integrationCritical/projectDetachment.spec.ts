@@ -5,13 +5,12 @@ import * as path from "node:path";
 import { Page } from "../../fixtures/pages";
 import { navigateToPage, openKeyDetail } from "../../helpers/navigation";
 import { captureRequestBody, readBack } from "../../helpers/roundTrip";
-import { masterKey } from "../../helpers/traffic";
 
 test("project creation and explicit detachment preserve saved scope and restore serving", async ({
   page,
   request,
 }) => {
-  const master = masterKey();
+  const master = process.env.LITELLM_MASTER_KEY ?? "sk-integration-master";
   const headers = { Authorization: `Bearer ${master}` };
   const prefix = `integration-browser-${randomUUID()}`;
   // rebind-ok: Register cleanup after each acquisition so partial setup always unwinds in reverse order.
@@ -59,7 +58,7 @@ test("project creation and explicit detachment preserve saved scope and restore 
       const model = await post("/model/new", {
         model_name: alias,
         litellm_params: {
-          model: "openai/gpt-6-luna",
+          model: "openai/gpt-4o-mini",
           api_key: "synthetic-provider-key",
           api_base: `${process.env.INTEGRATION_UPSTREAM_URL}/v1`,
         },

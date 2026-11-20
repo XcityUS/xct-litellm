@@ -1,3 +1,0 @@
-{{- if .Values.monolith.enabled }}
-{{- include "litellm.workload.service" . }}
-{{- end }}

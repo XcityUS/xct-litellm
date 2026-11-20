@@ -1,5 +1,3 @@
-from collections.abc import Mapping
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 from httpx import Headers, Response
@@ -16,7 +14,7 @@ from litellm.types.utils import ModelResponse
 from ..common_utils import PetalsError
 
 if TYPE_CHECKING:
-    from litellm.litellm_core_utils.tokenizer import Encoding as Tokenizer
+    import tiktoken
 
 
 class PetalsConfig(BaseConfig):
@@ -59,7 +57,7 @@ class PetalsConfig(BaseConfig):
         top_p: float | None = None,
         repetition_penalty: float | None = None,
     ) -> None:
-        locals_: Final[Mapping[str, object]] = MappingProxyType(locals().copy())
+        locals_: Final = locals().copy()
         for key, value in locals_.items():
             if key != "self" and value is not None:
                 setattr(self.__class__, key, value)
@@ -114,7 +112,7 @@ class PetalsConfig(BaseConfig):
         messages: list[AllMessageValues],
         optional_params: dict,
         litellm_params: dict,
-        encoding: "Tokenizer | None",
+        encoding: "tiktoken.Encoding | None",
         api_key: str | None = None,
         json_mode: bool | None = None,
     ) -> ModelResponse:

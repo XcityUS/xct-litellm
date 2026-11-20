@@ -16,10 +16,9 @@ from types import MappingProxyType
 from typing import Final, Literal, Protocol
 
 from fastapi import HTTPException, status
-from pydantic import JsonValue, TypeAdapter
+from pydantic import BaseModel, JsonValue, TypeAdapter
 
 from litellm.proxy._types import CommonProxyErrors, UserAPIKeyAuth
-from litellm.types.llms.base import LiteLLMBaseModel
 from litellm.types.proxy.management_endpoints.team_endpoints import (
     TeamMetadataFieldSchema,
 )
@@ -31,13 +30,13 @@ DEFAULT_TEAM_METADATA_VALIDATION_UNAVAILABLE_MESSAGE: Final = (
 DEFAULT_TEAM_METADATA_VALIDATION_REJECTED_MESSAGE: Final = "Team metadata failed validation."
 
 
-class TeamMetadataRequester(LiteLLMBaseModel):
+class TeamMetadataRequester(BaseModel):
     user_id: str | None = None
     user_email: str | None = None
     user_role: str | None = None
 
 
-class TeamMetadataValidationPayload(LiteLLMBaseModel):
+class TeamMetadataValidationPayload(BaseModel):
     operation: Literal["create", "update"]
     metadata: Mapping[str, JsonValue]
     existing_metadata: Mapping[str, JsonValue] | None = None
@@ -46,7 +45,7 @@ class TeamMetadataValidationPayload(LiteLLMBaseModel):
     requester: TeamMetadataRequester
 
 
-class TeamMetadataValidationResult(LiteLLMBaseModel):
+class TeamMetadataValidationResult(BaseModel):
     valid: bool
     error_message: str | None = None
 
@@ -112,7 +111,7 @@ async def run_team_metadata_validation(
     if premium_user is not True:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
+            detail={  # mutable-ok: HTTPException.detail has no immutable form
                 "error": f"custom_team_metadata_validate is an Enterprise feature. {CommonProxyErrors.not_premium_user.value}"
             },
         )
@@ -121,7 +120,9 @@ async def run_team_metadata_validation(
         if not inspect.iscoroutinefunction(validator_call):
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail={"error": "custom_team_metadata_validate must be an async function"},
+                detail={  # mutable-ok: HTTPException.detail has no immutable form
+                    "error": "custom_team_metadata_validate must be an async function"
+                },
             )
 
     try:
@@ -130,13 +131,15 @@ async def run_team_metadata_validation(
     except Exception:  # noqa: BLE001  # fail closed: any validator failure must block the team write
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={"error": unavailable_message},
+            detail={"error": unavailable_message},  # mutable-ok: HTTPException.detail has no immutable form
         )
 
     if not result.valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"error": result.error_message or DEFAULT_TEAM_METADATA_VALIDATION_REJECTED_MESSAGE},
+            detail={  # mutable-ok: HTTPException.detail has no immutable form
+                "error": result.error_message or DEFAULT_TEAM_METADATA_VALIDATION_REJECTED_MESSAGE
+            },
         )
 
 

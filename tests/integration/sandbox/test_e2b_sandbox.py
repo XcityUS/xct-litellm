@@ -2,7 +2,8 @@
 e2b code execution sandbox - end-to-end integration tests.
 
 These tests make REAL HTTP calls to the e2b API and are skipped automatically
-unless E2B_API_KEY is set.
+unless E2B_API_KEY is set. Mock-only unit tests live in
+tests/test_litellm/sandbox/test_e2b_sandbox.py.
 
 Run only these tests:
     pytest tests/integration/sandbox/test_e2b_sandbox.py -v

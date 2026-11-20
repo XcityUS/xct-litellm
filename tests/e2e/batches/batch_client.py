@@ -15,9 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
-from e2e_metadata import step
 from proxy_client import ProxyClient
 from e2e_http import (
     FileUploadForm,
@@ -77,16 +76,6 @@ class BatchErrorList(BaseModel):
     data: list[BatchErrorItem] = []
 
 
-class BatchUsage(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    prompt_tokens: int | None = None
-    completion_tokens: int | None = None
-    total_tokens: int | None = None
-    input_tokens: int | None = None
-    output_tokens: int | None = None
-
-
 class BatchObject(BaseModel):
     id: str
     object: str | None = None
@@ -100,7 +89,6 @@ class BatchObject(BaseModel):
     completion_window: str | None = None
     created_at: int | None = None
     model: str | None = None
-    usage: BatchUsage | None = None
 
 
 class BatchList(BaseModel):
@@ -148,15 +136,12 @@ def is_result_access_denied[R: BaseModel](result: Result[R]) -> bool:
 class BatchClient:
     proxy: ProxyClient
 
-    @step("Add a batch deployment named {model_name} that calls {litellm_params.model}")
     def create_model(self, model_name: str, litellm_params: LiteLLMParamsBody) -> str:
         return self.proxy.create_model(model_name, litellm_params, mode="batch")
 
-    @step("Delete the batch deployment")
     def delete_model(self, model_id: str) -> None:
         self.proxy.delete_model(model_id)
 
-    @step("Upload a batch input file to /v1/files")
     def upload_file(
         self,
         *,
@@ -176,7 +161,6 @@ class BatchClient:
             response_type=FileObject,
         )
 
-    @step("Retrieve the uploaded file")
     def retrieve_file(
         self, file_id: str, *, key: str, provider: str | None = None
     ) -> Result[FileObject]:
@@ -187,7 +171,6 @@ class BatchClient:
             response_type=FileObject,
         )
 
-    @step("List the files the key can see from /v1/files")
     def list_files(self, *, key: str, provider: str | None = None) -> Result[FileList]:
         return self.proxy.transport.get(
             _files_path(provider),
@@ -196,7 +179,6 @@ class BatchClient:
             response_type=FileList,
         )
 
-    @step("Create a batch of {body.endpoint} requests from the uploaded file")
     def create_batch(
         self, *, body: BatchCreateBody, key: str, provider: str | None = None
     ) -> StreamingResponse:
@@ -206,7 +188,6 @@ class BatchClient:
             json=body,
         )
 
-    @step("Retrieve the batch")
     def retrieve_batch(
         self, batch_id: str, *, key: str, provider: str | None = None
     ) -> Result[BatchObject]:
@@ -217,7 +198,6 @@ class BatchClient:
             response_type=BatchObject,
         )
 
-    @step("Cancel the batch")
     def cancel_batch(
         self, batch_id: str, *, key: str, provider: str | None = None
     ) -> Result[BatchObject]:
@@ -228,7 +208,6 @@ class BatchClient:
             response_type=BatchObject,
         )
 
-    @step("List the batches the key can see from /v1/batches")
     def list_batches(
         self,
         *,
@@ -244,22 +223,12 @@ class BatchClient:
             response_type=BatchList,
         )
 
-    @step("Delete the uploaded file")
     def delete_file(
         self, file_id: str, *, key: str, provider: str | None = None
     ) -> Result[FileDeleteResponse]:
         return self.proxy.transport.delete(
             f"{_files_path(provider)}/{file_id}",
             headers=self.proxy.transport.bearer(key),
-            json=NoBody(),
-            response_type=FileDeleteResponse,
-        )
-
-    @step("Delete the uploaded file as the proxy admin")
-    def delete_file_as_admin(self, file_id: str, *, provider: str | None = None) -> Result[FileDeleteResponse]:
-        return self.proxy.transport.delete(
-            f"{_files_path(provider)}/{file_id}",
-            headers=self.proxy.transport.master,
             json=NoBody(),
             response_type=FileDeleteResponse,
         )

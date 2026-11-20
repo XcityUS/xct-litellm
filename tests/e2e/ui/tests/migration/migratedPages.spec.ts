@@ -6,7 +6,6 @@ import { proxyIsPremium } from "../../helpers/premium";
 
 const ROOT = (process.env.SERVER_ROOT_PATH ?? "").replace(/\/+$/, "");
 const apiKeys = MIGRATED_E2E_PAGES["api-keys"];
-const home: MigratedPage = { segment: "", linkName: "Home", content: { role: "heading", name: "Home" } };
 
 async function expectContent(page: Page, destination: MigratedPage): Promise<void> {
   await expect(sidebarLink(page, apiKeys.linkName)).toBeVisible({ timeout: 20_000 });
@@ -41,7 +40,7 @@ test.describe("App Router migrated pages", () => {
       const landing = await page.goto(`${ROOT}/ui/`);
       expect(landing?.ok(), "dashboard document loads successfully").toBe(true);
       await dismissFeedbackPopup(page);
-      await expectContent(page, home);
+      await expectContent(page, apiKeys);
 
       await navigateToDestination(page, destination);
 
@@ -64,7 +63,7 @@ test.describe("App Router migrated pages", () => {
     const landing = await page.goto(`${ROOT}/ui/`);
     expect(landing?.ok(), "dashboard document loads successfully").toBe(true);
     await dismissFeedbackPopup(page);
-    await expectContent(page, home);
+    await expectContent(page, apiKeys);
 
     for (const destination of [apiKeys, MIGRATED_E2E_PAGES.models, apiKeys]) {
       await navigateToDestination(page, destination);

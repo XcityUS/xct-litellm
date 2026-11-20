@@ -4,16 +4,12 @@ from typing import Final
 
 from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFile
 from fastapi.responses import ORJSONResponse
-from pydantic import TypeAdapter
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from litellm.proxy._types import *
 from litellm.proxy.auth.user_api_key_auth import UserAPIKeyAuth, user_api_key_auth
 from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
-from litellm.proxy.common_utils.http_parsing_utils import (  # noqa: F401  # legacy module exports
-    _read_request_body,  # pyright: ignore[reportPrivateUsage,reportUnusedImport]  # backwards-compatible package export
-    read_request_body,
-)
+from litellm.proxy.common_utils.http_parsing_utils import _read_request_body
 from litellm.proxy.common_utils.openai_endpoint_utils import (
     get_custom_llm_provider_from_request_body,
     get_custom_llm_provider_from_request_headers,
@@ -21,14 +17,9 @@ from litellm.proxy.common_utils.openai_endpoint_utils import (
 )
 from litellm.proxy.image_endpoints.endpoints import batch_to_bytesio
 from litellm.proxy.video_endpoints.utils import (
-    VideoRequestRoute,
-    authorized_video_model,
     encode_character_id_in_response,
-    encode_video_id_in_response,
     extract_model_from_target_model_names,
-    fallback_requested_model,
     get_custom_provider_from_data,
-    routable_model_name,
     video_reference_to_id,
 )
 from litellm.types.videos.utils import (
@@ -37,7 +28,6 @@ from litellm.types.videos.utils import (
 )
 
 router: Final = APIRouter()
-_OPAQUE_VALUE_ADAPTER: Final = TypeAdapter(object)
 
 
 @router.post(
@@ -67,7 +57,7 @@ async def video_generation(
     Example:
     ```bash
     curl -X POST "http://localhost:4000/v1/videos" \
-        -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+        -H "Authorization: Bearer sk-1234" \
         -H "Content-Type: application/json" \
         -d '{
             "model": "sora-2",
@@ -90,8 +80,7 @@ async def video_generation(
     )
 
     # Read request body
-    data: Final = await read_request_body(request=request)
-    requested: Final = VideoRequestRoute.model_validate(data)
+    data: Final = await _read_request_body(request=request)
     if input_reference is not None:
         input_reference_file: Final = await batch_to_bytesio([input_reference])
         if input_reference_file:
@@ -100,7 +89,7 @@ async def video_generation(
     # Process request using ProxyBaseLLMRequestProcessing
     processor: Final = ProxyBaseLLMRequestProcessing(data=data)
     try:
-        generated: Final[object] = await processor.base_process_llm_request(
+        return await processor.base_process_llm_request(
             request=request,
             fastapi_response=fastapi_response,
             user_api_key_dict=user_api_key_dict,
@@ -119,19 +108,11 @@ async def video_generation(
             version=version,
         )
     except Exception as e:
-        raise await processor.handle_llm_api_exception(
+        raise await processor._handle_llm_api_exception(
             e=e,
             user_api_key_dict=user_api_key_dict,
             proxy_logging_obj=proxy_logging_obj,
             version=version,
-        )
-    else:
-        requested_model: Final = routable_model_name(requested.model, llm_router, requested.custom_llm_provider)
-        return encode_video_id_in_response(
-            response=generated,
-            fallback_provider=requested.custom_llm_provider,
-            fallback_model_id=requested_model,
-            requested_model=fallback_requested_model(requested_model, generated, llm_router),
         )
 
 
@@ -161,7 +142,7 @@ async def video_list(
     Example:
     ```bash
     curl -X GET "http://localhost:4000/v1/videos" \
-        -H "Authorization: Bearer $LITELLM_MASTER_KEY"
+        -H "Authorization: Bearer sk-1234"
     ```
     """
     from litellm.proxy.proxy_server import (
@@ -193,7 +174,7 @@ async def video_list(
     # Process request using ProxyBaseLLMRequestProcessing
     processor: Final = ProxyBaseLLMRequestProcessing(data=data)
     try:
-        listed: Final[object] = await processor.base_process_llm_request(
+        return await processor.base_process_llm_request(
             request=request,
             fastapi_response=fastapi_response,
             user_api_key_dict=user_api_key_dict,
@@ -212,14 +193,12 @@ async def video_list(
             version=version,
         )
     except Exception as e:
-        raise await processor.handle_llm_api_exception(
+        raise await processor._handle_llm_api_exception(
             e=e,
             user_api_key_dict=user_api_key_dict,
             proxy_logging_obj=proxy_logging_obj,
             version=version,
         )
-    else:
-        return listed
 
 
 @router.get(
@@ -249,7 +228,7 @@ async def video_status(
     Example:
     ```bash
     curl -X GET "http://localhost:4000/v1/videos/video_123" \
-        -H "Authorization: Bearer $LITELLM_MASTER_KEY"
+        -H "Authorization: Bearer sk-1234"
     ```
     """
     from litellm.proxy.proxy_server import (
@@ -283,14 +262,17 @@ async def video_status(
     if custom_llm_provider:
         data["custom_llm_provider"] = custom_llm_provider
 
-    resolved_model: Final = await authorized_video_model(decoded, llm_router, user_api_key_dict)
-    if resolved_model:
-        data["model"] = resolved_model
+    # Resolve model_name from model_id if available
+    # This allows the router to automatically inject litellm_params from the model config
+    if model_id_from_decoded and llm_router:
+        resolved_model: Final = llm_router.resolve_model_name_from_model_id(model_id_from_decoded)
+        if resolved_model:
+            data["model"] = resolved_model
 
     # Process request using ProxyBaseLLMRequestProcessing
-    processor: Final = ProxyBaseLLMRequestProcessing(data=data, served_model=decoded.get("served_model"))
+    processor: Final = ProxyBaseLLMRequestProcessing(data=data)
     try:
-        status: Final[object] = await processor.base_process_llm_request(
+        return await processor.base_process_llm_request(
             request=request,
             fastapi_response=fastapi_response,
             user_api_key_dict=user_api_key_dict,
@@ -309,18 +291,11 @@ async def video_status(
             version=version,
         )
     except Exception as e:
-        raise await processor.handle_llm_api_exception(
+        raise await processor._handle_llm_api_exception(
             e=e,
             user_api_key_dict=user_api_key_dict,
             proxy_logging_obj=proxy_logging_obj,
             version=version,
-        )
-    else:
-        return encode_video_id_in_response(
-            response=status,
-            fallback_provider=custom_llm_provider,
-            fallback_model_id=model_id_from_decoded,
-            polled_video=decoded,
         )
 
 
@@ -351,7 +326,7 @@ async def video_content(
     Example:
     ```bash
     curl -X GET "http://localhost:4000/v1/videos/{video_id}/content" \
-        -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+        -H "Authorization: Bearer sk-1234" \
         --output video.mp4
     ```
     """
@@ -374,6 +349,7 @@ async def video_content(
 
     decoded: Final = decode_video_id_with_provider(video_id)
     provider_from_id: Final = decoded.get("custom_llm_provider")
+    model_id_from_decoded: Final = decoded.get("model_id")
 
     custom_llm_provider: Final = (
         get_custom_llm_provider_from_request_headers(request=request)
@@ -384,11 +360,14 @@ async def video_content(
     if custom_llm_provider:
         data["custom_llm_provider"] = custom_llm_provider
 
-    resolved_model: Final = await authorized_video_model(decoded, llm_router, user_api_key_dict)
-    if resolved_model:
-        data["model"] = resolved_model
+    # Resolve model_name from model_id if available
+    # This allows the router to automatically inject litellm_params from the model config
+    if model_id_from_decoded and llm_router:
+        resolved_model: Final = llm_router.resolve_model_name_from_model_id(model_id_from_decoded)
+        if resolved_model:
+            data["model"] = resolved_model
     # Process request using ProxyBaseLLMRequestProcessing
-    processor: Final = ProxyBaseLLMRequestProcessing(data=data, served_model=decoded.get("served_model"))
+    processor: Final = ProxyBaseLLMRequestProcessing(data=data)
     try:
         # Call the video content function directly to get raw bytes
         video_bytes: Final = await processor.base_process_llm_request(
@@ -417,7 +396,7 @@ async def video_content(
             headers={"Content-Disposition": f"attachment; filename=video_{video_id}.mp4"},
         )
     except Exception as e:
-        raise await processor.handle_llm_api_exception(
+        raise await processor._handle_llm_api_exception(
             e=e,
             user_api_key_dict=user_api_key_dict,
             proxy_logging_obj=proxy_logging_obj,
@@ -452,7 +431,7 @@ async def video_remix(
     Example:
     ```bash
     curl -X POST "http://localhost:4000/v1/videos/video_123/remix" \
-        -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+        -H "Authorization: Bearer sk-1234" \
         -H "Content-Type: application/json" \
         -d '{
             "prompt": "A new version with different colors"
@@ -473,8 +452,7 @@ async def video_remix(
         version,
     )
 
-    data: Final = await read_request_body(request=request)
-    requested: Final = VideoRequestRoute.model_validate(data)
+    data: Final = await _read_request_body(request=request)
     data["video_id"] = video_id
 
     decoded: Final = decode_video_id_with_provider(video_id)
@@ -484,20 +462,23 @@ async def video_remix(
     custom_llm_provider: Final = (
         get_custom_llm_provider_from_request_headers(request=request)
         or get_custom_llm_provider_from_request_query(request=request)
-        or requested.custom_llm_provider
+        or data.get("custom_llm_provider")
         or provider_from_id
     )
     if custom_llm_provider:
         data["custom_llm_provider"] = custom_llm_provider
 
-    resolved_model: Final = await authorized_video_model(decoded, llm_router, user_api_key_dict)
-    if resolved_model:
-        data["model"] = resolved_model
+    # Resolve model_name from model_id if available
+    # This allows the router to automatically inject litellm_params from the model config
+    if model_id_from_decoded and llm_router:
+        resolved_model: Final = llm_router.resolve_model_name_from_model_id(model_id_from_decoded)
+        if resolved_model:
+            data["model"] = resolved_model
 
     # Process request using ProxyBaseLLMRequestProcessing
-    processor: Final = ProxyBaseLLMRequestProcessing(data=data, served_model=decoded.get("served_model"))
+    processor: Final = ProxyBaseLLMRequestProcessing(data=data)
     try:
-        remixed: Final[object] = await processor.base_process_llm_request(
+        return await processor.base_process_llm_request(
             request=request,
             fastapi_response=fastapi_response,
             user_api_key_dict=user_api_key_dict,
@@ -516,19 +497,11 @@ async def video_remix(
             version=version,
         )
     except Exception as e:
-        raise await processor.handle_llm_api_exception(
+        raise await processor._handle_llm_api_exception(
             e=e,
             user_api_key_dict=user_api_key_dict,
             proxy_logging_obj=proxy_logging_obj,
             version=version,
-        )
-    else:
-        return encode_video_id_in_response(
-            response=remixed,
-            fallback_provider=custom_llm_provider,
-            fallback_model_id=model_id_from_decoded
-            or routable_model_name(requested.model, llm_router, custom_llm_provider),
-            requested_model=decoded.get("requested_model"),
         )
 
 
@@ -560,7 +533,7 @@ async def video_create_character(
     Example:
     ```bash
     curl -X POST "http://localhost:4000/v1/videos/characters" \
-        -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+        -H "Authorization: Bearer sk-1234" \
         -F "video=@character_video.mp4" \
         -F "name=my_character"
     ```
@@ -579,14 +552,12 @@ async def video_create_character(
         version,
     )
 
-    data: Final = await read_request_body(request=request)
+    data: Final = await _read_request_body(request=request)
     video_file: Final = await batch_to_bytesio([video])
     if video_file:
         data["video"] = video_file[0]
 
-    target_model_name: Final = extract_model_from_target_model_names(
-        _OPAQUE_VALUE_ADAPTER.validate_python(data.get("target_model_names"))
-    )
+    target_model_name: Final = extract_model_from_target_model_names(data.get("target_model_names"))
     if target_model_name and not data.get("model"):
         data["model"] = target_model_name
 
@@ -600,7 +571,7 @@ async def video_create_character(
 
     processor: Final = ProxyBaseLLMRequestProcessing(data=data)
     try:
-        response: object = await processor.base_process_llm_request(
+        response = await processor.base_process_llm_request(
             request=request,
             fastapi_response=fastapi_response,
             user_api_key_dict=user_api_key_dict,
@@ -629,7 +600,7 @@ async def video_create_character(
             )
         return response
     except Exception as e:
-        raise await processor.handle_llm_api_exception(
+        raise await processor._handle_llm_api_exception(
             e=e,
             user_api_key_dict=user_api_key_dict,
             proxy_logging_obj=proxy_logging_obj,
@@ -664,7 +635,7 @@ async def video_get_character(
     Example:
     ```bash
     curl -X GET "http://localhost:4000/v1/videos/characters/char_123" \
-        -H "Authorization: Bearer $LITELLM_MASTER_KEY"
+        -H "Authorization: Bearer sk-1234"
     ```
     """
     from litellm.proxy.proxy_server import (
@@ -701,15 +672,13 @@ async def video_get_character(
     data["custom_llm_provider"] = custom_llm_provider
 
     if model_id_from_decoded and llm_router:
-        resolved_model: Final = llm_router.registry().resolve(
-            model_id_from_decoded, kind="from_id", custom_llm_provider=provider_from_id
-        )
+        resolved_model: Final = llm_router.resolve_model_name_from_model_id(model_id_from_decoded)
         if resolved_model:
             data["model"] = resolved_model
 
     processor: Final = ProxyBaseLLMRequestProcessing(data=data)
     try:
-        response: object = await processor.base_process_llm_request(
+        response = await processor.base_process_llm_request(
             request=request,
             fastapi_response=fastapi_response,
             user_api_key_dict=user_api_key_dict,
@@ -737,7 +706,7 @@ async def video_get_character(
             )
         return response
     except Exception as e:
-        raise await processor.handle_llm_api_exception(
+        raise await processor._handle_llm_api_exception(
             e=e,
             user_api_key_dict=user_api_key_dict,
             proxy_logging_obj=proxy_logging_obj,
@@ -771,7 +740,7 @@ async def video_edit(
     Example:
     ```bash
     curl -X POST "http://localhost:4000/v1/videos/edits" \
-        -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+        -H "Authorization: Bearer sk-1234" \
         -H "Content-Type: application/json" \
         -d '{"prompt": "Make it brighter", "video": {"id": "video_123"}}'
     ```
@@ -790,8 +759,7 @@ async def video_edit(
         version,
     )
 
-    data: Final = await read_request_body(request=request)
-    requested: Final = VideoRequestRoute.model_validate(data)
+    data: Final = await _read_request_body(request=request)
     uploaded_video: Final = data.pop("video", None)
     if isinstance(uploaded_video, StarletteUploadFile):
         video_files: Final = await batch_to_bytesio((uploaded_video,))
@@ -814,13 +782,14 @@ async def video_edit(
     )
     data["custom_llm_provider"] = custom_llm_provider
 
-    resolved_model: Final = await authorized_video_model(decoded, llm_router, user_api_key_dict)
-    if resolved_model:
-        data["model"] = resolved_model
+    if model_id_from_decoded and llm_router:
+        resolved_model: Final = llm_router.resolve_model_name_from_model_id(model_id_from_decoded)
+        if resolved_model:
+            data["model"] = resolved_model
 
-    processor: Final = ProxyBaseLLMRequestProcessing(data=data, served_model=decoded.get("served_model"))
+    processor: Final = ProxyBaseLLMRequestProcessing(data=data)
     try:
-        edited: Final[object] = await processor.base_process_llm_request(
+        return await processor.base_process_llm_request(
             request=request,
             fastapi_response=fastapi_response,
             user_api_key_dict=user_api_key_dict,
@@ -839,19 +808,11 @@ async def video_edit(
             version=version,
         )
     except Exception as e:
-        raise await processor.handle_llm_api_exception(
+        raise await processor._handle_llm_api_exception(
             e=e,
             user_api_key_dict=user_api_key_dict,
             proxy_logging_obj=proxy_logging_obj,
             version=version,
-        )
-    else:
-        return encode_video_id_in_response(
-            response=edited,
-            fallback_provider=custom_llm_provider,
-            fallback_model_id=model_id_from_decoded
-            or routable_model_name(requested.model, llm_router, custom_llm_provider),
-            requested_model=decoded.get("requested_model"),
         )
 
 
@@ -881,7 +842,7 @@ async def video_extension(
     Example:
     ```bash
     curl -X POST "http://localhost:4000/v1/videos/extensions" \
-        -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+        -H "Authorization: Bearer sk-1234" \
         -H "Content-Type: application/json" \
         -d '{"prompt": "Continue the scene", "seconds": "5", "video": {"id": "video_123"}}'
     ```
@@ -900,8 +861,7 @@ async def video_extension(
         version,
     )
 
-    data: Final = await read_request_body(request=request)
-    requested: Final = VideoRequestRoute.model_validate(data)
+    data: Final = await _read_request_body(request=request)
     data["video_id"] = video_reference_to_id(data.pop("video", None))
 
     decoded: Final = decode_video_id_with_provider(data["video_id"])
@@ -917,13 +877,14 @@ async def video_extension(
     )
     data["custom_llm_provider"] = custom_llm_provider
 
-    resolved_model: Final = await authorized_video_model(decoded, llm_router, user_api_key_dict)
-    if resolved_model:
-        data["model"] = resolved_model
+    if model_id_from_decoded and llm_router:
+        resolved_model: Final = llm_router.resolve_model_name_from_model_id(model_id_from_decoded)
+        if resolved_model:
+            data["model"] = resolved_model
 
-    processor: Final = ProxyBaseLLMRequestProcessing(data=data, served_model=decoded.get("served_model"))
+    processor: Final = ProxyBaseLLMRequestProcessing(data=data)
     try:
-        extended: Final[object] = await processor.base_process_llm_request(
+        return await processor.base_process_llm_request(
             request=request,
             fastapi_response=fastapi_response,
             user_api_key_dict=user_api_key_dict,
@@ -942,17 +903,9 @@ async def video_extension(
             version=version,
         )
     except Exception as e:
-        raise await processor.handle_llm_api_exception(
+        raise await processor._handle_llm_api_exception(
             e=e,
             user_api_key_dict=user_api_key_dict,
             proxy_logging_obj=proxy_logging_obj,
             version=version,
-        )
-    else:
-        return encode_video_id_in_response(
-            response=extended,
-            fallback_provider=custom_llm_provider,
-            fallback_model_id=model_id_from_decoded
-            or routable_model_name(requested.model, llm_router, custom_llm_provider),
-            requested_model=decoded.get("requested_model"),
         )

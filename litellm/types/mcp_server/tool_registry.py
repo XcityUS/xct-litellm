@@ -1,37 +1,34 @@
 from collections.abc import Callable
-from typing import ClassVar
+from typing import Any, ClassVar
 
-from pydantic import ConfigDict, Field
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, ConfigDict
 
 
-class MCPTool(LiteLLMBaseModel):
+class MCPTool(BaseModel):
     model_config: ClassVar[ConfigDict] = ConfigDict(arbitrary_types_allowed=True)
     name: str
     description: str
-    input_schema: dict[str, object]
+    input_schema: dict[str, Any]
     handler: Callable
-    server_id: str | None = Field(default=None, frozen=True)
 
 
-class ToolSchema(LiteLLMBaseModel):
+class ToolSchema(BaseModel):
     name: str
     description: str
-    inputSchema: dict[str, object]
+    inputSchema: dict[str, Any]
 
 
-class ListToolsResponse(LiteLLMBaseModel):
+class ListToolsResponse(BaseModel):
     tools: list[ToolSchema]
     nextCursor: str | None = None
-    _meta: dict[str, object] | None = None
+    _meta: dict[str, Any] | None = None
 
 
-class CallToolRequest(LiteLLMBaseModel):
+class CallToolRequest(BaseModel):
     method: str = "tools/call"
-    params: dict[str, object]
+    params: dict[str, Any]
 
 
-class ContentItem(LiteLLMBaseModel):
+class ContentItem(BaseModel):
     type: str
     text: str | None = None

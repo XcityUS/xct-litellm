@@ -4,13 +4,11 @@ Main Search function for LiteLLM.
 
 import asyncio
 import contextvars
-from collections.abc import Coroutine, Mapping
+from collections.abc import Coroutine
 from functools import partial
-from types import MappingProxyType
-from typing import Final
+from typing import Any, Final
 
 import httpx
-from pydantic import TypeAdapter
 
 import litellm
 from litellm._logging import verbose_logger
@@ -26,21 +24,12 @@ base_llm_http_handler = BaseLLMHTTPHandler()
 #################################################
 
 
-_SEARCH_KWARGS: Final = TypeAdapter(Mapping[str, object])
-
-
-def _search_pricing_params(kwargs: Mapping[str, object]) -> Mapping[str, object]:
-    """Always carries the key so an unpriced fallback tool clears the price a failed primary left in the
-    shared logging object (`Logging.update_environment_variables` merges litellm_params)."""
-    return MappingProxyType({"input_cost_per_query": kwargs.get("input_cost_per_query")})
-
-
 def _build_search_optional_params(
     max_results: int | None = None,
     search_domain_filter: list[str] | None = None,
     max_tokens_per_page: int | None = None,
     country: str | None = None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """
     Helper function to build optional_params dict from Perplexity Search API parameters.
 
@@ -53,7 +42,7 @@ def _build_search_optional_params(
     Returns:
         Dict with non-None optional parameters
     """
-    optional_params: Final[dict[str, object]] = {}
+    optional_params: Final[dict[str, Any]] = {}
 
     if max_results is not None:
         optional_params["max_results"] = max_results
@@ -78,7 +67,7 @@ async def asearch(
     api_key: str | None = None,
     api_base: str | None = None,
     timeout: float | httpx.Timeout | None = None,
-    extra_headers: dict[str, object] | None = None,
+    extra_headers: dict[str, Any] | None = None,
     **kwargs,
 ) -> SearchResponse:
     """
@@ -181,9 +170,9 @@ def search(
     api_key: str | None = None,
     api_base: str | None = None,
     timeout: float | httpx.Timeout | None = None,
-    extra_headers: dict[str, object] | None = None,
+    extra_headers: dict[str, Any] | None = None,
     **kwargs,
-) -> SearchResponse | Coroutine[object, object, SearchResponse]:
+) -> SearchResponse | Coroutine[Any, Any, SearchResponse]:
     """
     Synchronous Search function.
 
@@ -269,8 +258,7 @@ def search(
         )
 
         # Filter out internal LiteLLM parameters from kwargs
-        search_kwargs: Final = _SEARCH_KWARGS.validate_python(kwargs)
-        filtered_kwargs: Final = filter_out_litellm_params(kwargs=search_kwargs)
+        filtered_kwargs: Final = filter_out_litellm_params(kwargs=kwargs)
 
         # Add remaining kwargs to optional_params (for provider-specific params)
         for key, value in filtered_kwargs.items():
@@ -302,7 +290,6 @@ def search(
             litellm_params={
                 "litellm_call_id": litellm_call_id,
                 "api_base": complete_url,
-                **_search_pricing_params(search_kwargs),
             },
             custom_llm_provider=search_provider,
         )

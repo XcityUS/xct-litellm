@@ -1,4 +1,7 @@
-def get_current_time(params: dict[str, object] | None = None) -> str:
+from typing import Any
+
+
+def get_current_time(params: dict[str, Any] | None = None) -> str:
     """
     Get the current time (hardcoded sample implementation)
 
@@ -15,7 +18,7 @@ def get_current_time(params: dict[str, object] | None = None) -> str:
     return "10:30:45 AM"
 
 
-def get_current_date(params: dict[str, object] | None = None) -> str:
+def get_current_date(params: dict[str, Any] | None = None) -> str:
     """
     Get the current date (hardcoded sample implementation)
 

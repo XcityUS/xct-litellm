@@ -7,7 +7,6 @@ from types import MappingProxyType
 from typing import Final, Literal
 
 from fastapi import HTTPException
-from pydantic import TypeAdapter
 
 import litellm
 from litellm._logging import verbose_proxy_logger
@@ -40,9 +39,6 @@ from litellm.types.proxy.guardrails.guardrail_hooks.lakera_ai_v2 import (
     LakeraAIResponse,
 )
 from litellm.types.utils import CallTypesLiteral, GuardrailStatus, ModelResponse
-
-_DECODED_JSON: Final = TypeAdapter(object)
-_RESPONSE_FIELDS: Final = TypeAdapter(Mapping[str, object])
 
 _DETECTOR_CATEGORY_PHRASES: Final[Mapping[str, str]] = MappingProxyType(
     {
@@ -130,12 +126,12 @@ def _apply_redacted_messages_back_preserving_fields(
     Responses-API ``input`` string, with no chat messages to merge into)."""
     original_messages: Final = data.get("messages")
     if not isinstance(original_messages, list):
-        redacted_list: Final = list(redacted_messages)
+        redacted_list: Final = list(redacted_messages)  # mutable-ok: apply_redacted_messages_back requires a list
         apply_redacted_messages_back(data, redacted_list)
         return
     scope_indices: Final = _pre_masking_scope_indices(guardrail, original_messages)
     guardrailed_scoped: Final = tuple(
-        {
+        {  # mutable-ok: fresh dict per iteration, not stored beyond this comprehension
             **original_messages[original_idx],
             "content": redacted["content"],
         }
@@ -229,11 +225,13 @@ def _build_lakera_inspection_messages(data: Mapping[str, object]) -> Sequence[Ma
     would have silently mishandled a PII/redaction hit found there."""
     instructions: Final = data.get("instructions")
     leading: Final[Sequence[Mapping[str, str]]] = (
-        [{"role": "system", "content": instructions}] if isinstance(instructions, str) and instructions else []
+        [{"role": "system", "content": instructions}]  # mutable-ok: fresh list/dict, not stored
+        if isinstance(instructions, str) and instructions
+        else []  # mutable-ok: fresh empty list, not stored
     )
-    return [
+    return [  # mutable-ok: fresh list, not stored
         *leading,
-        *build_inspection_messages(dict(data)),
+        *build_inspection_messages(dict(data)),  # mutable-ok: fresh shallow copy for the dict[str, Any] param
     ]
 
 
@@ -255,7 +253,7 @@ class LakeraAIGuardrail(CustomGuardrail):
         breakdown: bool | None = True,
         metadata: dict | None = None,
         dev_info: bool | None = True,
-        on_flagged: Literal["block", "mask", "monitor", "inject_system_message"] | None = "block",
+        on_flagged: Literal["block", "monitor", "inject_system_message"] | None = "block",
         skip_system_message_in_guardrail: bool | None = None,
         skip_tool_message_in_guardrail: bool | None = None,
         advisory_system_message: str | None = None,
@@ -278,7 +276,7 @@ class LakeraAIGuardrail(CustomGuardrail):
             metadata: Optional[Dict] = None,
             dev_info: Optional[bool] = True,
             on_flagged: Optional[str] = "block", Action to take when content is flagged:
-                "block", "mask", "monitor", or "inject_system_message"
+                "block", "monitor", or "inject_system_message"
             skip_system_message_in_guardrail: Optional[bool] = None,
             skip_tool_message_in_guardrail: Optional[bool] = None,
             advisory_system_message: Optional[str] = None, custom advisory message template
@@ -361,11 +359,6 @@ class LakeraAIGuardrail(CustomGuardrail):
                 "only happen when Lakera's response carries both the violation breakdown and the "
                 "payload location data. Without them, PII would be forwarded to the model unredacted."
             )
-        if on_flagged == "mask" and not (payload and breakdown):
-            raise ValueError(
-                "on_flagged='mask' requires payload=True and breakdown=True: masking needs Lakera's violation "
-                "breakdown and payload location data. Without them, PII would be forwarded to the model unredacted."
-            )
 
     def _build_advisory_message(self, lakera_response: LakeraAIResponse | None) -> str:
         """Format the advisory message shown to the LLM when on_flagged='inject_system_message'."""
@@ -409,13 +402,9 @@ class LakeraAIGuardrail(CustomGuardrail):
                 url=f"{self.api_base}/v2/guard",
                 headers={"Authorization": f"Bearer {self.lakera_api_key}"},
                 json=request,
-                timeout=self.timeout,
             )
-            verbose_proxy_logger.debug(
-                "Lakera AI v2 guard response: %s", _DECODED_JSON.validate_python(response.json())
-            )
-            decoded_response: Final[LakeraAIResponse] = response.json()
-            lakera_response = LakeraAIResponse(**decoded_response)
+            verbose_proxy_logger.debug("Lakera AI v2 guard response: %s", response.json())
+            lakera_response = LakeraAIResponse(**response.json())
             return lakera_response, masked_entity_count
         except Exception as e:
             status = "guardrail_failed_to_respond"
@@ -594,7 +583,11 @@ class LakeraAIGuardrail(CustomGuardrail):
         #########################################################
         if lakera_guardrail_response.get("flagged") is True:
             is_pii_only_violation: Final = self._is_only_pii_violation(lakera_guardrail_response)
-            if is_pii_only_violation and not is_multimodal_input and self.on_flagged != "block":
+            # PII-only violations get masked in place regardless of on_flagged: there's
+            # no reason to expose raw PII to satisfy an advisory note, and masking is
+            # strictly safer than either blocking or appending an advisory message next
+            # to unredacted PII.
+            if is_pii_only_violation and not is_multimodal_input:
                 redacted_messages: Final = self._mask_pii_in_messages(
                     messages=new_messages,
                     lakera_response=lakera_guardrail_response,
@@ -637,9 +630,9 @@ class LakeraAIGuardrail(CustomGuardrail):
                     # through with no advisory ever reaching the model.
                     raise self._get_http_exception_for_blocked_guardrail(lakera_guardrail_response)
             elif self.on_flagged == "monitor":
-                # Monitor means "don't block", not "don't redact": a PII-only
-                # violation in a shape the mask branch above skips still gets
-                # masked here when only the Responses instructions are in the way.
+                # Monitor means "don't block", not "don't redact": until the mask
+                # branch above started skipping shapes it can't write back to, a
+                # PII-only violation was masked whatever on_flagged said.
                 masked_in_place: Final = is_pii_only_violation and self._mask_unwritable_instructions_pii_in_place(
                     data=data,
                     inspected_messages=new_messages,
@@ -660,7 +653,10 @@ class LakeraAIGuardrail(CustomGuardrail):
                     verbose_proxy_logger.warning(
                         "Lakera Guardrail: Monitoring mode - violation detected but allowing request"
                     )
-            else:
+            elif self.on_flagged == "block":
+                # Either non-PII violations, or PII on multimodal input
+                # (which cannot be masked in place without dropping
+                # image/audio parts) — raise the standard block error.
                 raise self._get_http_exception_for_blocked_guardrail(lakera_guardrail_response)
 
         #########################################################
@@ -734,7 +730,7 @@ class LakeraAIGuardrail(CustomGuardrail):
                 verbose_proxy_logger.warning(
                     "Lakera Guardrail: Monitoring mode - violation detected but allowing request"
                 )
-            else:
+            elif self.on_flagged == "block":
                 raise self._get_http_exception_for_blocked_guardrail(lakera_guardrail_response)
 
         #########################################################
@@ -781,7 +777,7 @@ class LakeraAIGuardrail(CustomGuardrail):
                 choice_indices.append(i)
 
         # Use a copy of original_messages so _mask_pii_in_messages does not mutate data["messages"]
-        post_call_messages: Final = list(copy.deepcopy(original_messages)) + response_messages
+        post_call_messages: Final = list(copy.deepcopy(original_messages)) + response_messages  # mutable-ok: needs list
 
         # Call Lakera guardrail
         lakera_guardrail_response, _ = await self.call_v2_guard(
@@ -792,7 +788,8 @@ class LakeraAIGuardrail(CustomGuardrail):
 
         # Handle flagged content
         if lakera_guardrail_response.get("flagged") is True:
-            if self._is_only_pii_violation(lakera_guardrail_response) and self.on_flagged != "block":
+            # If only PII violations exist, mask the PII in the response and allow
+            if self._is_only_pii_violation(lakera_guardrail_response):
                 masked_entity_count: Final[dict[str, int]] = {}
                 masked_messages: Final = self._mask_pii_in_messages(
                     messages=post_call_messages,
@@ -805,7 +802,7 @@ class LakeraAIGuardrail(CustomGuardrail):
                         choice_idx = choice_indices[idx]
                         response_dict["choices"][choice_idx]["message"]["content"] = msg.get("content", "")
                 add_guardrail_to_applied_guardrails_header(request_data=data, guardrail_name=self.guardrail_name)
-                return ModelResponse(**_RESPONSE_FIELDS.validate_python(response_dict))
+                return ModelResponse(**response_dict)
 
             # inject_system_message has nothing left to inject into once a response
             # already exists, so it is treated the same as monitor: log and allow.
@@ -814,7 +811,7 @@ class LakeraAIGuardrail(CustomGuardrail):
                     "Lakera Guardrail: Post-call violation detected (on_flagged=%s) - allowing response",
                     self.on_flagged,
                 )
-            else:
+            elif self.on_flagged == "block":
                 raise self._get_http_exception_for_blocked_guardrail(lakera_guardrail_response)
 
         # Record applied guardrail

@@ -1,5 +1,3 @@
-from collections.abc import Mapping
-from types import MappingProxyType
 from typing import Final
 
 import litellm
@@ -44,7 +42,7 @@ class FeatherlessAIConfig(OpenAIGPTConfig):
         tool_choice: str | None = None,
         tools: list | None = None,
     ) -> None:
-        locals_: Final[Mapping[str, object]] = MappingProxyType(locals().copy())
+        locals_: Final = locals().copy()
         for key, value in locals_.items():
             if key != "self" and value is not None:
                 setattr(self.__class__, key, value)
@@ -111,13 +109,6 @@ class FeatherlessAIConfig(OpenAIGPTConfig):
         )
         dynamic_api_key = api_key or get_secret_str("FEATHERLESS_AI_API_KEY") or get_secret_str("FEATHERLESS_API_KEY")
         return api_base, dynamic_api_key
-
-    def get_openai_compatible_provider_info(
-        self,
-        api_base: str | None,
-        api_key: str | None,
-    ) -> tuple[str | None, str | None]:
-        return self._get_openai_compatible_provider_info(api_base, api_key)
 
     def validate_environment(
         self,

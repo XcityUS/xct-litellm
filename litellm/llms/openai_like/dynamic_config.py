@@ -2,15 +2,12 @@
 Dynamic configuration class generator for JSON-based providers.
 """
 
-from collections.abc import Coroutine, Mapping
-from typing import TYPE_CHECKING, Final, Literal, overload
-
-from pydantic import TypeAdapter, ValidationError
+from collections.abc import Coroutine
+from typing import Any, Final, Literal, overload
 
 from litellm.litellm_core_utils.prompt_templates.common_utils import (
     handle_messages_with_content_list_to_str_conversion,
 )
-from litellm.litellm_core_utils.url_utils import ensure_api_route, join_api_base
 from litellm.llms.openai.chat.gpt_transformation import OpenAIGPTConfig
 from litellm.llms.openai_like.chat.transformation import OpenAILikeChatConfig
 from litellm.secret_managers.main import get_secret_str
@@ -28,29 +25,6 @@ FUNCTION_CALLING_OPENAI_PARAMS: frozenset[str] = frozenset(
     )
 )
 
-if TYPE_CHECKING:
-    from litellm.llms.openai_like.responses.transformation import OpenAILikeResponsesConfig
-
-_PAID_SEARCH_TOOLS: Final = frozenset({"web_search", "web_search_image", "image_search"})
-_PAYLOAD_ADAPTER: Final[TypeAdapter[Mapping[str, object]]] = TypeAdapter(Mapping[str, object])
-_TOOL_USAGE_ADAPTER: Final[TypeAdapter[Mapping[str, int]]] = TypeAdapter(Mapping[str, int])
-
-
-def web_search_requests_from_tool_usage(payload: object) -> int | None:
-    """
-    Billable search calls in a parsed OpenAI-compatible chat response whose usage carries a
-    tool_usage {tool_name: count} map, as EmpirioLabs reports built-in tool invocations.
-    Free tools (code_interpreter, web_extractor) are not counted.
-    """
-    try:
-        body: Final = _PAYLOAD_ADAPTER.validate_python(payload)
-        usage: Final = _PAYLOAD_ADAPTER.validate_python(body.get("usage"))
-        tool_usage: Final = _TOOL_USAGE_ADAPTER.validate_python(usage.get("tool_usage"), strict=True)
-    except ValidationError:
-        return None
-    calls: Final = sum(count for tool, count in tool_usage.items() if tool in _PAID_SEARCH_TOOLS and count > 0)
-    return calls if calls > 0 else None
-
 
 def create_config_class(provider: SimpleProviderConfig):
     """Generate config class dynamically from JSON configuration"""
@@ -59,13 +33,10 @@ def create_config_class(provider: SimpleProviderConfig):
     base_class: Final[type] = OpenAIGPTConfig if provider.base_class == "openai_gpt" else OpenAILikeChatConfig
 
     class JSONProviderConfig(base_class):
-        def _flattens_content_lists(self) -> bool:
-            return bool(provider.special_handling.get("convert_content_list_to_string"))
-
         @overload
         def _transform_messages(
             self, messages: list[AllMessageValues], model: str, is_async: Literal[True]
-        ) -> Coroutine[object, object, list[AllMessageValues]]: ...
+        ) -> Coroutine[Any, Any, list[AllMessageValues]]: ...
 
         @overload
         def _transform_messages(
@@ -77,26 +48,17 @@ def create_config_class(provider: SimpleProviderConfig):
 
         def _transform_messages(
             self, messages: list[AllMessageValues], model: str, is_async: bool = False
-        ) -> list[AllMessageValues] | Coroutine[object, object, list[AllMessageValues]]:
+        ) -> list[AllMessageValues] | Coroutine[Any, Any, list[AllMessageValues]]:
             """Transform messages based on special_handling config"""
 
             # Handle content list to string conversion if configured
-            if self._flattens_content_lists():
+            if provider.special_handling.get("convert_content_list_to_string"):
                 messages = handle_messages_with_content_list_to_str_conversion(messages)
 
             if is_async:
                 return super()._transform_messages(messages=messages, model=model, is_async=True)
             else:
                 return super()._transform_messages(messages=messages, model=model, is_async=False)
-
-        def _should_preserve_cache_control_for_endpoint(
-            self,
-            custom_llm_provider: str | None,
-            api_base: str | None,
-        ) -> bool:
-            return provider.special_handling.get(
-                "preserve_cache_control", False
-            ) or super()._should_preserve_cache_control_for_endpoint(custom_llm_provider, api_base)
 
         def _get_openai_compatible_provider_info(
             self, api_base: str | None, api_key: str | None
@@ -115,13 +77,6 @@ def create_config_class(provider: SimpleProviderConfig):
 
             return resolved_base, resolved_key
 
-        def get_openai_compatible_provider_info(
-            self,
-            api_base: str | None,
-            api_key: str | None,
-        ) -> tuple[str | None, str | None]:
-            return self._get_openai_compatible_provider_info(api_base, api_key)
-
         def get_complete_url(
             self,
             api_base: str | None,
@@ -135,9 +90,13 @@ def create_config_class(provider: SimpleProviderConfig):
             if not api_base:
                 api_base = provider.base_url
 
-            if isinstance(api_base, str):
-                return ensure_api_route(api_base, "chat/completions")
-            raise ValueError(f"api_base is required for provider {provider.slug}")
+            if api_base is None:
+                raise ValueError(f"api_base is required for provider {provider.slug}")
+
+            if not api_base.endswith("/chat/completions"):
+                api_base = f"{api_base}/chat/completions"
+
+            return api_base
 
         def get_supported_openai_params(self, model: str) -> list:
             from litellm.utils import is_explicitly_disabled_factory, supports_reasoning
@@ -200,25 +159,6 @@ def create_config_class(provider: SimpleProviderConfig):
 
             return optional_params
 
-        def transform_parsed_response_dict(
-            self,
-            parsed_response: dict[str, object],  # mutable-ok: BaseConfig signature
-        ) -> dict[str, object]:  # mutable-ok: BaseConfig signature
-            """
-            Carry the provider's usage.tool_usage search count as usage.server_tool_use.web_search_requests,
-            the field the built-in tool cost path bills per call.
-            """
-            repaired: Final = _PAYLOAD_ADAPTER.validate_python(
-                super().transform_parsed_response_dict(parsed_response)  # pyright: ignore[reportUnknownMemberType]  # base_class is picked at runtime
-            )
-            if not provider.special_handling.get("web_search_requests_from_tool_usage"):
-                return {**repaired}
-            web_search_requests: Final = web_search_requests_from_tool_usage(repaired)
-            if web_search_requests is None:
-                return {**repaired}
-            usage: Final = _PAYLOAD_ADAPTER.validate_python(repaired["usage"])
-            return {**repaired, "usage": {**usage, "server_tool_use": {"web_search_requests": web_search_requests}}}
-
         @property
         def custom_llm_provider(self) -> str | None:
             return provider.slug
@@ -226,10 +166,10 @@ def create_config_class(provider: SimpleProviderConfig):
     return JSONProviderConfig
 
 
-_responses_config_cache: Final[dict[str, "type[OpenAILikeResponsesConfig]"]] = {}
+_responses_config_cache: Final[dict] = {}
 
 
-def create_responses_config_class(provider: SimpleProviderConfig) -> "type[OpenAILikeResponsesConfig]":
+def create_responses_config_class(provider: SimpleProviderConfig):
     """Generate a Responses API config class dynamically from JSON configuration.
 
     Parallel to create_config_class() but for /v1/responses endpoints.
@@ -272,9 +212,11 @@ def create_responses_config_class(provider: SimpleProviderConfig) -> "type[OpenA
                 if not api_base:
                     api_base = provider.base_url
 
-            if isinstance(api_base, str):
-                return join_api_base(api_base, "responses")
-            raise ValueError(f"api_base is required for provider {provider.slug}")
+            if api_base is None:
+                raise ValueError(f"api_base is required for provider {provider.slug}")
+
+            api_base = api_base.rstrip("/")
+            return f"{api_base}/responses"
 
         def transform_responses_api_request(
             self,

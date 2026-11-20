@@ -6,15 +6,12 @@ then builds a SemanticRouter for prompt matching.
 """
 
 import os
-from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
 import yaml
-from pydantic import TypeAdapter
 
 from litellm._logging import verbose_logger
 from litellm.constants import DEFAULT_SEMANTIC_GUARD_SIMILARITY_THRESHOLD
-from litellm.router_api import RoutingContext
 
 if TYPE_CHECKING:
     from semantic_router.routers import SemanticRouter
@@ -24,14 +21,13 @@ if TYPE_CHECKING:
 
 
 ROUTE_TEMPLATES_DIR: Final = os.path.join(os.path.dirname(__file__), "route_templates")
-_DECODED_YAML: Final = TypeAdapter(object)
 
 
 class SemanticGuardRouteLoader:
     """Loads route definitions from YAML templates and custom configs, builds SemanticRouter."""
 
     @staticmethod
-    def load_builtin_template(template_name: str) -> dict[str, object]:
+    def load_builtin_template(template_name: str) -> dict[str, Any]:
         """Load a built-in route template YAML by name."""
         file_path: Final = os.path.join(ROUTE_TEMPLATES_DIR, f"{template_name}.yaml")
         if not os.path.exists(file_path):
@@ -53,12 +49,12 @@ class SemanticGuardRouteLoader:
         return sorted(templates)
 
     @staticmethod
-    def load_custom_routes_file(file_path: str) -> list[dict[str, object]]:
+    def load_custom_routes_file(file_path: str) -> list[dict[str, Any]]:
         """Load custom routes from a YAML file."""
         if not os.path.exists(file_path):
             raise ValueError(f"SemanticGuard: custom routes file not found: {file_path}")
         with open(file_path, "r") as f:
-            data: Final = _DECODED_YAML.validate_python(yaml.safe_load(f))
+            data: Final = yaml.safe_load(f)
         if isinstance(data, list):
             return data
         if isinstance(data, dict):
@@ -70,7 +66,7 @@ class SemanticGuardRouteLoader:
         cls,
         route_templates: list[str] | None,
         custom_routes_file: str | None,
-        custom_routes: Sequence[Mapping[str, object]] | None,
+        custom_routes: list[dict[str, Any]] | None,
         global_threshold: float = DEFAULT_SEMANTIC_GUARD_SIMILARITY_THRESHOLD,
     ) -> list["Route"]:
         """Build semantic-router Route objects from templates + custom config."""
@@ -135,7 +131,7 @@ class SemanticGuardRouteLoader:
         )
 
         encoder: Final = LiteLLMRouterEncoder(
-            ctx=RoutingContext(litellm_router),
+            litellm_router_instance=litellm_router,
             model_name=embedding_model,
             score_threshold=global_threshold,
         )

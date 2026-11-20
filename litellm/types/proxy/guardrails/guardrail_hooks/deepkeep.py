@@ -1,11 +1,9 @@
-from pydantic import Field
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, Field
 
 from .base import GuardrailConfigModel
 
 
-class DeepKeepGuardrailConfigModelOptionalParams(LiteLLMBaseModel):
+class DeepKeepGuardrailConfigModelOptionalParams(BaseModel):
     unreachable_fallback: str | None = Field(
         default="fail_closed",
         description=(

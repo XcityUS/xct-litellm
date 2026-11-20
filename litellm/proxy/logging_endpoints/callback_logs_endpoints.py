@@ -15,7 +15,6 @@ self-describing `StandardLoggingPayload`, so completions/responses can use it to
 """
 
 import uuid
-from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any, Final
 
@@ -49,7 +48,7 @@ class CallbackLogsReplayer:
     """
 
     @staticmethod
-    def _epoch_to_datetime(value: object) -> datetime:
+    def _epoch_to_datetime(value: Any) -> datetime:
         """`StandardLoggingPayload` stores startTime/endTime as float epoch seconds."""
         if isinstance(value, (int, float)):
             return datetime.fromtimestamp(float(value), tz=timezone.utc)
@@ -88,9 +87,9 @@ class CallbackLogsReplayer:
             function_id="",
         )
 
-        metadata: Final[dict[str, object]] = payload.get("metadata") or {}
+        metadata: Final[dict[str, Any]] = payload.get("metadata") or {}
         user_api_key_hash: Final = metadata.get("user_api_key_hash")
-        litellm_metadata: Final[dict[str, object]] = {
+        litellm_metadata: Final[dict[str, Any]] = {
             "user_api_key": user_api_key_hash,
             "user_api_key_hash": user_api_key_hash,
             "user_api_key_alias": metadata.get("user_api_key_alias"),
@@ -115,7 +114,7 @@ class CallbackLogsReplayer:
         return logging_obj
 
     @staticmethod
-    def _response_obj_from_payload(payload: Mapping[str, object]) -> dict[str, object]:
+    def _response_obj_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         """Minimal response object so usage-derived spend-log fields resolve."""
         return {
             "id": payload.get("id"),

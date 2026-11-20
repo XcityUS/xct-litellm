@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
-from collections.abc import Mapping
-from typing import Final
+from typing import Any, Final
 
 import httpx  # noqa: F401 - used at runtime (AsyncClient, HTTPStatusError)
 
@@ -95,7 +94,7 @@ class FocusVantageDestination(FocusDestination):
         self,
         *,
         prefix: str,
-        config: Mapping[str, object] | None = None,
+        config: dict[str, Any] | None = None,
     ) -> None:
         config = config or {}
         api_key: Final = config.get("api_key")

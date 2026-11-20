@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Final
 
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 from typing_extensions import ReadOnly, TypedDict
 
 from litellm import get_secret
@@ -16,7 +16,6 @@ from litellm.llms.custom_httpx.http_handler import (
     get_async_httpx_client,
     httpxSpecialProvider,
 )
-from litellm.types.llms.base import LiteLLMBaseModel
 
 PROMETHEUS_URL: Final[str | None] = get_secret("PROMETHEUS_URL")
 PROMETHEUS_SELECTED_INSTANCE: Final[str | None] = get_secret("PROMETHEUS_SELECTED_INSTANCE")
@@ -25,18 +24,18 @@ async_http_handler: Final = get_async_httpx_client(llm_provider=httpxSpecialProv
 _RAW_JSON_PAYLOAD: Final = TypeAdapter(object)
 
 
-class PrometheusRangeSample(LiteLLMBaseModel):
+class PrometheusRangeSample(BaseModel):
     """One ``matrix`` series of the Prometheus HTTP query API."""
 
     metric: dict[str, object]
     values: list[tuple[float, str]]
 
 
-class PrometheusQueryData(LiteLLMBaseModel):
+class PrometheusQueryData(BaseModel):
     result: list[PrometheusRangeSample]
 
 
-class PrometheusQueryResponse(LiteLLMBaseModel):
+class PrometheusQueryResponse(BaseModel):
     data: PrometheusQueryData
 
 

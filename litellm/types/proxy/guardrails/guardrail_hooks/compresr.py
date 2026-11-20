@@ -1,13 +1,11 @@
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import Field
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, Field
 
 from .base import GuardrailConfigModel
 
 
-class CompresrGuardrailOptionalParams(LiteLLMBaseModel):
+class CompresrGuardrailOptionalParams(BaseModel):
     """Optional tuning knobs for the Compresr guardrail."""
 
     target_compression_ratio: float | None = Field(
@@ -93,7 +91,7 @@ class CompresrGuardrailOptionalParams(LiteLLMBaseModel):
             "Unset lets the server default apply (~10.0)."
         ),
     )
-    compression_params: dict[str, object] | None = Field(
+    compression_params: dict[str, Any] | None = Field(
         default=None,
         description=(
             "Passthrough of extra parameters forwarded verbatim in the Compresr "

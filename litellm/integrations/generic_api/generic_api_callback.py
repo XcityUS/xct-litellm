@@ -10,9 +10,7 @@ import asyncio
 import json
 import os
 import re
-import time
 import traceback
-from collections.abc import Mapping
 from typing import Final, Literal
 
 import httpx
@@ -23,7 +21,6 @@ from litellm._uuid import uuid
 from litellm.integrations.custom_batch_logger import CustomBatchLogger
 from litellm.litellm_core_utils.safe_json_dumps import safe_dumps
 from litellm.llms.custom_httpx.http_handler import (
-    AsyncHTTPHandler,
     get_async_httpx_client,
     httpxSpecialProvider,
 )
@@ -107,7 +104,6 @@ class GenericAPILogger(CustomBatchLogger):
         max_retries: int = 0,
         retry_delay: float = 1.0,
         timeout: float | httpx.Timeout | None = None,
-        async_httpx_client: AsyncHTTPHandler | None = None,
         **kwargs,
     ):
         """
@@ -155,11 +151,7 @@ class GenericAPILogger(CustomBatchLogger):
         #########################################################
         # Init httpx client
         #########################################################
-        self.async_httpx_client = (
-            async_httpx_client
-            if async_httpx_client is not None
-            else get_async_httpx_client(llm_provider=httpxSpecialProvider.LoggingCallback)
-        )
+        self.async_httpx_client = get_async_httpx_client(llm_provider=httpxSpecialProvider.LoggingCallback)
         endpoint = endpoint or os.getenv("GENERIC_LOGGER_ENDPOINT")
         if endpoint is None:
             raise ValueError(
@@ -199,7 +191,7 @@ class GenericAPILogger(CustomBatchLogger):
         self.flush_lock = asyncio.Lock()
         super().__init__(**kwargs, flush_lock=self.flush_lock)
         asyncio.create_task(self.periodic_flush())
-        self.log_queue: list[Mapping[str, object] | StandardLoggingPayload] = []
+        self.log_queue: list[dict | StandardLoggingPayload] = []
 
     def _get_headers(self, headers: dict | None = None):
         """
@@ -252,7 +244,7 @@ class GenericAPILogger(CustomBatchLogger):
         if self.retry_delay <= 0:
             return
 
-        delay: Final = self.retry_delay * (2.0**attempt)
+        delay: Final = self.retry_delay * (2**attempt)
         await asyncio.sleep(delay)
 
     async def _post_with_retries(self, data: str) -> httpx.Response:
@@ -351,14 +343,7 @@ class GenericAPILogger(CustomBatchLogger):
         except Exception as e:
             verbose_logger.exception("Generic API Logger Error - %s\n%s", e, traceback.format_exc())
 
-    async def flush_queue(self) -> None:
-        await self.async_send_batch()
-
-    async def async_send_batch(self) -> None:
-        async with self.flush_lock:
-            await self._send_batch()
-
-    async def _send_batch(self) -> None:
+    async def async_send_batch(self):
         """
         Sends the batch of messages to Generic API Endpoint
 
@@ -367,18 +352,18 @@ class GenericAPILogger(CustomBatchLogger):
         - ndjson: Sends logs as newline-delimited JSON
         - single: Sends each log as individual HTTP request in parallel
         """
-        batch: Final = tuple(self.log_queue)
-        if not batch:
-            return
         try:
+            if not self.log_queue:
+                return
+
             verbose_logger.debug(
-                "Generic API Logger - about to flush %s events in '%s' format", len(batch), self.log_format
+                "Generic API Logger - about to flush %s events in '%s' format", len(self.log_queue), self.log_format
             )
 
             if self.log_format == "single":
                 # Send each log as individual HTTP request in parallel
                 tasks: Final = []
-                for log_entry in batch:
+                for log_entry in self.log_queue:
                     task = self._post_with_retries(data=safe_dumps(log_entry))
                     tasks.append(task)
 
@@ -399,9 +384,9 @@ class GenericAPILogger(CustomBatchLogger):
             else:
                 # Format the payload based on log_format
                 if self.log_format == "json_array":
-                    data = safe_dumps(batch)
+                    data = safe_dumps(self.log_queue)
                 elif self.log_format == "ndjson":
-                    data = "\n".join(safe_dumps(log) for log in batch)
+                    data = "\n".join(safe_dumps(log) for log in self.log_queue)
                 else:
                     raise ValueError(f"Unknown log_format: {self.log_format}")
 
@@ -418,8 +403,7 @@ class GenericAPILogger(CustomBatchLogger):
         except Exception as e:
             verbose_logger.exception("Generic API Logger Error sending batch - %s\n%s", e, traceback.format_exc())
         finally:
-            del self.log_queue[: len(batch)]
-            self.last_flush_time = time.time()
+            self.log_queue.clear()
 
     def _get_v1_logging_payload(self, kwargs, response_obj, start_time, end_time) -> dict:
         """

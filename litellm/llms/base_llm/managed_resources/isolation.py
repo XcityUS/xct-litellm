@@ -10,14 +10,12 @@ they created. Callers with no admin role and no identifying ids at all
 are denied so an empty user_id can never select an unscoped query.
 """
 
-from collections.abc import Mapping, Sequence
-from typing import Final, Protocol
+from typing import Any, Final
 
-from litellm.litellm_core_utils.core_helpers import require_attributes
-from litellm.types.proxy.auth.user_api_key_auth import (
+from litellm.proxy._types import (
     UserAPIKeyAuth,
 )
-from litellm.types.proxy.auth.user_api_key_auth import (
+from litellm.proxy._types import (
     user_api_key_has_admin_view as _user_has_admin_view,
 )
 
@@ -31,7 +29,7 @@ def resolve_resource_owner_id(
     A key with neither a user_id nor a team_id would otherwise stamp
     ``created_by=None`` and be locked out of its own resources, so it owns
     them under its hashed token instead, using the ``key:`` scope prefix
-    already used by ``litellm_core_utils/resource_ownership.py``. ``None``
+    already used by ``proxy/common_utils/resource_ownership.py``. ``None``
     means the caller has no usable identity of its own and must fall back
     to team scoping, or be denied.
     """
@@ -48,27 +46,22 @@ def resolve_resource_owner_id(
     return None
 
 
-class _Identified(Protocol):
-    @property
-    def id(self) -> object: ...
-
-
-def build_list_page(items: Sequence[object], has_more: bool = False) -> dict[str, object]:
+def build_list_page(items: list[Any], has_more: bool = False) -> dict[str, Any]:
     """Build the OpenAI-style paginated list response shape used by managed
     file/batch/vector-store listings. ``first_id`` and ``last_id`` are
     sourced from each item's ``.id`` attribute."""
     return {
         "object": "list",
         "data": items,
-        "first_id": require_attributes(items[0], _Identified, "id").id if items else None,
-        "last_id": require_attributes(items[-1], _Identified, "id").id if items else None,
+        "first_id": items[0].id if items else None,
+        "last_id": items[-1].id if items else None,
         "has_more": has_more,
     }
 
 
 def build_owner_filter(
     user_api_key_dict: UserAPIKeyAuth,
-) -> dict[str, str | Sequence[Mapping[str, str]]] | None:
+) -> dict[str, Any] | None:
     """Return a Prisma `where` fragment that scopes a managed-resource listing
     to records the caller is allowed to see.
 

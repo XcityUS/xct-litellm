@@ -19,8 +19,7 @@ to the in-memory aggregator). Flush is async and batched.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
-from typing import Final
+from typing import Any, Final
 
 from litellm._logging import verbose_router_logger
 from litellm.repositories.table_repositories import (
@@ -40,7 +39,7 @@ class AdaptiveRouterUpdateQueue:
 
     def __init__(self) -> None:
         self._state_agg: dict[StateKey, dict[str, float]] = {}
-        self._session_agg: dict[SessionKey, Mapping[str, object]] = {}
+        self._session_agg: dict[SessionKey, dict[str, Any]] = {}
         self._lock = asyncio.Lock()
         self._max_state_size_seen = 0
         self._max_session_size_seen = 0
@@ -78,7 +77,7 @@ class AdaptiveRouterUpdateQueue:
         session_id: str,
         router_name: str,
         model_name: str,
-        state_dict: Mapping[str, object],
+        state_dict: dict[str, Any],
     ) -> None:
         """
         Last-write-wins per session row. The state_dict is a snapshot of the
@@ -92,7 +91,7 @@ class AdaptiveRouterUpdateQueue:
 
     # ---- Flushers (called by background task) ----------------------------
 
-    async def flush_state_to_db(self, prisma_client: object) -> int:
+    async def flush_state_to_db(self, prisma_client: Any) -> int:
         """
         Drain state aggregator and apply to LiteLLM_AdaptiveRouterState.
         Returns number of cells flushed.
@@ -148,7 +147,7 @@ class AdaptiveRouterUpdateQueue:
 
         return len(batch)
 
-    async def flush_session_to_db(self, prisma_client: object) -> int:
+    async def flush_session_to_db(self, prisma_client: Any) -> int:
         """
         Drain session aggregator and upsert into LiteLLM_AdaptiveRouterSession.
         Returns number of session rows flushed.

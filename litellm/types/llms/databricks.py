@@ -1,8 +1,7 @@
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 from typing_extensions import (
-    NotRequired,
     ReadOnly,
     Required,
     TypedDict,
@@ -23,7 +22,7 @@ class GenericStreamingChunk(TypedDict, total=False):
 class DatabricksTextContent(TypedDict, total=False):
     type: Literal["text"]
     text: Required[str]
-    citations: list[dict[str, object]] | None
+    citations: list[dict[str, Any]] | None
 
 
 class DatabricksReasoningSummary(TypedDict):
@@ -35,7 +34,7 @@ class DatabricksReasoningSummary(TypedDict):
 class DatabricksReasoningContent(TypedDict, total=False):
     type: Literal["reasoning"]
     summary: Required[list[DatabricksReasoningSummary]]
-    citations: list[dict[str, object]] | None
+    citations: list[dict[str, Any]] | None
 
 
 AllDatabricksContentListValues = DatabricksTextContent | DatabricksReasoningContent
@@ -83,4 +82,3 @@ class DatabricksResponse(TypedDict):
     model: str
     choices: list[DatabricksChoice]
     usage: ChatCompletionUsageBlock
-    system_fingerprint: NotRequired[ReadOnly[str | None]]

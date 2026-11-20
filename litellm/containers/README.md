@@ -120,7 +120,6 @@ class AzureContainerConfig(BaseContainerConfig):
         self,
         headers: dict,
         api_key: Optional[str] = None,
-        litellm_params: Optional[GenericLiteLLMParams] = None,
     ) -> dict:
         """Azure uses api-key header instead of Bearer token."""
         import litellm
@@ -184,14 +183,14 @@ def get_provider_container_config(
 ```bash
 # Create container via Azure
 curl -X POST "http://localhost:4000/v1/containers" \
-    -H "Authorization: Bearer <your-master-key>" \
+    -H "Authorization: Bearer sk-1234" \
     -H "custom-llm-provider: azure" \
     -H "Content-Type: application/json" \
     -d '{"name": "My Azure Container"}'
 
 # List container files via Azure
 curl -X GET "http://localhost:4000/v1/containers/cntr_123/files" \
-    -H "Authorization: Bearer <your-master-key>" \
+    -H "Authorization: Bearer sk-1234" \
     -H "custom-llm-provider: azure"
 ```
 
@@ -214,19 +213,18 @@ Run the container API tests:
 
 ```bash
 cd /Users/ishaanjaffer/github/litellm
-python -m pytest tests/unit/containers/ -v
+python -m pytest tests/test_litellm/containers/ -v
 ```
 
 Test via proxy:
 
 ```bash
-# Start proxy (proxy_config.yaml reads its master key from LITELLM_MASTER_KEY)
-export LITELLM_MASTER_KEY="sk-$(openssl rand -hex 32)"
+# Start proxy
 cd litellm/proxy && python proxy_cli.py --config proxy_config.yaml --port 4000
 
 # Test endpoints
 curl -X GET "http://localhost:4000/v1/containers/cntr_123/files" \
-    -H "Authorization: Bearer $LITELLM_MASTER_KEY"
+    -H "Authorization: Bearer sk-1234"
 ```
 
 ---

@@ -1,10 +1,7 @@
-from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
-from pydantic import ConfigDict
+from pydantic import BaseModel
 from typing_extensions import ReadOnly, TypedDict
-
-from litellm.types.llms.base import LiteLLMBaseModel
 
 from .llms.openai import (
     OpenAIRealtimeEvents,
@@ -60,49 +57,14 @@ class RealtimeQueryParams(TypedDict, total=False):
 # ---------------------------------------------------------------------------
 
 
-class RealtimeExpiresAfter(LiteLLMBaseModel):
+class RealtimeExpiresAfter(BaseModel):
     """Expiration config for a client secret."""
 
     anchor: str | None = "created_at"
     seconds: int | None = None
 
 
-class RealtimeAudioTranscriptionConfig(LiteLLMBaseModel):
-    model_config = ConfigDict(extra="allow", frozen=True)
-
-    model: str | None = None
-    delay: str | None = None
-    keywords: Sequence[str] | None = None
-    language: str | None = None
-    languages: Sequence[str] | None = None
-    prompt: str | None = None
-
-
-class RealtimeAudioInputConfig(LiteLLMBaseModel):
-    model_config = ConfigDict(extra="allow", frozen=True)
-
-    format: str | Mapping[str, object] | None = None
-    noise_reduction: Mapping[str, object] | None = None
-    transcription: RealtimeAudioTranscriptionConfig | None = None
-    turn_detection: Mapping[str, object] | None = None
-
-
-class RealtimeAudioOutputConfig(LiteLLMBaseModel):
-    model_config = ConfigDict(extra="allow", frozen=True)
-
-    format: str | Mapping[str, object] | None = None
-    language: str | None = None
-    voice: str | Mapping[str, object] | None = None
-
-
-class RealtimeSessionAudioConfig(LiteLLMBaseModel):
-    model_config = ConfigDict(extra="allow", frozen=True)
-
-    input: RealtimeAudioInputConfig | None = None
-    output: RealtimeAudioOutputConfig | None = None
-
-
-class RealtimeSessionConfig(LiteLLMBaseModel):
+class RealtimeSessionConfig(BaseModel):
     """
     Session configuration nested inside the client_secrets request body.
 
@@ -111,23 +73,23 @@ class RealtimeSessionConfig(LiteLLMBaseModel):
     Extra/unknown fields are passed through unchanged.
     """
 
-    model_config = ConfigDict(extra="allow", frozen=True)
+    model_config = {"extra": "allow"}
 
     type: str | None = None
     model: str | None = None
     instructions: str | None = None
-    audio: RealtimeSessionAudioConfig | None = None
+    audio: dict[str, Any] | None = None
     include: list[str] | None = None
     max_output_tokens: int | str | None = None
     output_modalities: list[str] | None = None
-    tool_choice: object | None = None
-    tools: list[dict[str, object]] | None = None
-    tracing: object | None = None
-    truncation: object | None = None
-    prompt: dict[str, object] | None = None
+    tool_choice: Any | None = None
+    tools: list[dict[str, Any]] | None = None
+    tracing: Any | None = None
+    truncation: Any | None = None
+    prompt: dict[str, Any] | None = None
 
 
-class RealtimeClientSecretRequest(LiteLLMBaseModel):
+class RealtimeClientSecretRequest(BaseModel):
     """
     Request body for POST /v1/realtime/client_secrets.
 
@@ -141,7 +103,7 @@ class RealtimeClientSecretRequest(LiteLLMBaseModel):
     model: str | None = None
 
 
-class RealtimeClientSecretResponse(LiteLLMBaseModel):
+class RealtimeClientSecretResponse(BaseModel):
     """
     Response from POST /v1/realtime/client_secrets.
 
@@ -152,10 +114,10 @@ class RealtimeClientSecretResponse(LiteLLMBaseModel):
 
     expires_at: int | None = None
     value: str
-    session: dict[str, object] | None = None
+    session: dict[str, Any] | None = None
 
 
-class RealtimeTranscriptionSessionRequest(LiteLLMBaseModel):
+class RealtimeTranscriptionSessionRequest(BaseModel):
     """
     Request body for POST /v1/realtime/transcription_sessions.
 
@@ -165,24 +127,21 @@ class RealtimeTranscriptionSessionRequest(LiteLLMBaseModel):
     unchanged to the provider.
     """
 
-    model_config = ConfigDict(extra="allow", frozen=True)
+    model_config = {"extra": "allow"}
 
     # LiteLLM-only routing hint — stripped before forwarding upstream.
     model: str | None = None
     input_audio_transcription: dict[str, Any] | None = None
-    audio: RealtimeSessionAudioConfig | None = None
 
     def resolved_model(self) -> str | None:
         if self.model:
             return self.model
         if self.input_audio_transcription:
             return self.input_audio_transcription.get("model")
-        if self.audio and self.audio.input and self.audio.input.transcription:
-            return self.audio.input.transcription.model
         return None
 
 
-class RealtimeTranscriptionSessionResponse(LiteLLMBaseModel):
+class RealtimeTranscriptionSessionResponse(BaseModel):
     """
     Response from POST /v1/realtime/transcription_sessions.
 
@@ -190,9 +149,9 @@ class RealtimeTranscriptionSessionResponse(LiteLLMBaseModel):
     ephemeral key. Unknown fields pass through unchanged.
     """
 
-    model_config = ConfigDict(extra="allow", frozen=True)
+    model_config = {"extra": "allow"}
 
-    client_secret: dict[str, object] | None = None
+    client_secret: dict[str, Any] | None = None
 
 
 class RealtimeErrorDetail(TypedDict):

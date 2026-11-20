@@ -19,7 +19,6 @@ import time
 import pytest
 
 from e2e_config import CHEAP_ANTHROPIC_MODEL, unique_marker
-from e2e_metadata import Domain, Mode, Provider, Subject, meta
 from lifecycle import ResourceManager
 from logging_client import (
     LangfuseCreds,
@@ -47,14 +46,6 @@ def langfuse_creds() -> LangfuseCreds:
 
 class TestTeamLangfuseCallback:
     @pytest.mark.covers("logging.langfuse.success.logs_spend", exercised_on=["chat_completions"])
-    @meta(
-        Subject(
-            domain=Domain.OBSERVABILITY,
-            providers=(Provider.ANTHROPIC,),
-            models=(CHEAP_ANTHROPIC_MODEL,),
-            mode=Mode.NONSTREAM,
-        )
-    )
     def test_team_callback_delivers_and_isolates(
         self, client: LoggingClient, langfuse_creds: LangfuseCreds, resources: ResourceManager
     ) -> None:

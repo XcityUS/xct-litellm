@@ -27,7 +27,6 @@ def initialize_guardrail(litellm_params: "LitellmParams", guardrail: "Guardrail"
         config=litellm_params.config,
         metadata=litellm_params.metadata,
         application=litellm_params.application,
-        timeout=litellm_params.timeout,
     )
     litellm.logging_callback_manager.add_litellm_callback(_javelin_callback)
 

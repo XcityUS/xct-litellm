@@ -118,22 +118,6 @@ class SpendLinkedTable(Protocol[RowT_co]):
     async def update_many(self, *, where: Mapping[str, object], data: Mapping[str, object]) -> int: ...
 
 
-class FindManyTable(Protocol[RowT_co]):
-    async def find_many(self, *, where: Mapping[str, object]) -> Sequence[RowT_co]: ...
-
-
-class CountTable(Protocol):
-    async def count(self, *, where: Mapping[str, object]) -> int: ...
-
-
-class UpdateManyTable(Protocol):
-    async def update_many(self, *, data: Mapping[str, object], where: Mapping[str, object]) -> int: ...
-
-
-class DeleteManyTable(Protocol):
-    async def delete_many(self, *, where: Mapping[str, object]) -> int: ...
-
-
 class BatchTable(Protocol):
     def update(self, *, where: Mapping[str, object], data: Mapping[str, object]) -> None: ...
 
@@ -141,15 +125,6 @@ class BatchTable(Protocol):
 
 
 class PrismaBatch(Protocol):
-    @property
-    def litellm_customermembertable(self) -> BatchTable: ...
-
-    @property
-    def litellm_customerteamtable(self) -> BatchTable: ...
-
-    @property
-    def litellm_customerorganizationtable(self) -> BatchTable: ...
-
     @property
     def litellm_verificationtoken(self) -> BatchTable: ...
 
@@ -176,10 +151,5 @@ class PrismaBatch(Protocol):
 
     @property
     def litellm_modelaccessgroupbudgettable(self) -> BatchTable: ...
-
-    @property
-    def litellm_projecttable(self) -> BatchTable: ...
-
-    def execute_raw(self, query: str, *args: object) -> None: ...
 
     async def commit(self) -> None: ...

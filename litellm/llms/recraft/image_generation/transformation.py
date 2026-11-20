@@ -1,10 +1,7 @@
-from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any, Final
 
 import httpx
-from pydantic import ConfigDict, TypeAdapter
 
-from litellm.litellm_core_utils.url_utils import join_api_base
 from litellm.llms.base_llm.image_generation.transformation import (
     BaseImageGenerationConfig,
 )
@@ -17,16 +14,13 @@ from litellm.types.llms.recraft import RecraftImageGenerationRequestParams
 from litellm.types.utils import ImageObject, ImageResponse
 
 if TYPE_CHECKING:
+    import tiktoken
+
     from litellm.litellm_core_utils.litellm_logging import Logging as _LiteLLMLoggingObj
-    from litellm.litellm_core_utils.tokenizer import Encoding as Tokenizer
 
     LiteLLMLoggingObj = _LiteLLMLoggingObj
 else:
     LiteLLMLoggingObj = Any
-
-_JSON_OBJECT: Final = TypeAdapter(Mapping[str, object], config=ConfigDict(hide_input_in_errors=True))
-_JSON_OBJECTS: Final = TypeAdapter(Iterable[Mapping[str, object]], config=ConfigDict(hide_input_in_errors=True))
-_DECODED_JSON: Final = TypeAdapter(object)
 
 
 class RecraftImageGenerationConfig(BaseImageGenerationConfig):
@@ -74,8 +68,11 @@ class RecraftImageGenerationConfig(BaseImageGenerationConfig):
 
         Some providers need `model` in `api_base`
         """
-        base_url: Final = api_base or get_secret_str("RECRAFT_API_BASE") or self.DEFAULT_BASE_URL
-        return join_api_base(base_url, self.IMAGE_GENERATION_ENDPOINT)
+        complete_url: str = api_base or get_secret_str("RECRAFT_API_BASE") or self.DEFAULT_BASE_URL
+
+        complete_url = complete_url.rstrip("/")
+        complete_url = f"{complete_url}/{self.IMAGE_GENERATION_ENDPOINT}"
+        return complete_url
 
     def validate_environment(
         self,
@@ -125,7 +122,7 @@ class RecraftImageGenerationConfig(BaseImageGenerationConfig):
         request_data: dict,
         optional_params: dict,
         litellm_params: dict,
-        encoding: "Tokenizer | None",
+        encoding: "tiktoken.Encoding | None",
         api_key: str | None = None,
         json_mode: bool | None = None,
     ) -> ImageResponse:
@@ -135,7 +132,7 @@ class RecraftImageGenerationConfig(BaseImageGenerationConfig):
         https://www.recraft.ai/docs#generate-image
         """
         try:
-            response_data: Final = _DECODED_JSON.validate_python(raw_response.json())
+            response_data: Final = raw_response.json()
         except Exception as e:
             raise self.get_error_class(
                 error_message=f"Error transforming image generation response: {e}",
@@ -145,8 +142,7 @@ class RecraftImageGenerationConfig(BaseImageGenerationConfig):
         if not model_response.data:
             model_response.data = []
 
-        payload: Final = _JSON_OBJECT.validate_python(response_data)
-        for image_data in _JSON_OBJECTS.validate_python(payload["data"]):
+        for image_data in response_data["data"]:
             model_response.data.append(
                 ImageObject(
                     url=image_data.get("url", None),

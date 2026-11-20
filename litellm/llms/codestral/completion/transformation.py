@@ -1,19 +1,9 @@
 import json
 from typing import Final
 
-from pydantic import TypeAdapter
-from typing_extensions import TypedDict
-
 import litellm
-from litellm.litellm_core_utils.core_helpers import keyword_arguments
 from litellm.llms.openai.completion.transformation import OpenAITextCompletionConfig
 from litellm.types.llms.databricks import GenericStreamingChunk
-
-_DECODED_JSON: Final = TypeAdapter(object)
-
-
-class _StreamChunkFields(TypedDict, total=False, extra_items=object):
-    pass
 
 
 class CodestralTextCompletionConfig(OpenAITextCompletionConfig):
@@ -39,7 +29,7 @@ class CodestralTextCompletionConfig(OpenAITextCompletionConfig):
         random_seed: int | None = None,
         stop: str | None = None,
     ) -> None:
-        locals_: Final[dict[str, object]] = locals().copy()
+        locals_: Final = locals().copy()
         for key, value in locals_.items():
             if key != "self" and value is not None:
                 setattr(self.__class__, key, value)
@@ -93,7 +83,7 @@ class CodestralTextCompletionConfig(OpenAITextCompletionConfig):
         finish_reason = None
         logprobs = None
 
-        chunk_data = litellm.CustomStreamWrapper.strip_sse_data_from_chunk(chunk_data) or ""
+        chunk_data = litellm.CustomStreamWrapper._strip_sse_data_from_chunk(chunk_data) or ""
         chunk_data = chunk_data.strip()
         if len(chunk_data) == 0 or chunk_data == "[DONE]":
             return {
@@ -110,11 +100,7 @@ class CodestralTextCompletionConfig(OpenAITextCompletionConfig):
                 "finish_reason": finish_reason,
             }
 
-        original_chunk: Final = litellm.ModelResponseStream(
-            **_StreamChunkFields(
-                **keyword_arguments(_DECODED_JSON.validate_python(chunk_data_dict), litellm.ModelResponseStream)
-            )
-        )
+        original_chunk: Final = litellm.ModelResponseStream(**chunk_data_dict)
         _choices: Final = chunk_data_dict.get("choices", []) or []
         if len(_choices) == 0:
             return {
@@ -137,9 +123,3 @@ class CodestralTextCompletionConfig(OpenAITextCompletionConfig):
             finish_reason=finish_reason,
             logprobs=logprobs,
         )
-
-    def chunk_parser(
-        self,
-        chunk_data: str,
-    ) -> GenericStreamingChunk:
-        return self._chunk_parser(chunk_data)

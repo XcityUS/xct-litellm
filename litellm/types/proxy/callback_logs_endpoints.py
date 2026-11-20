@@ -5,23 +5,22 @@ External producers (e.g. the litellm-rust gateway) POST finished logging
 payloads here; the proxy replays them through the standard callback fan-out.
 """
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from litellm.constants import MAX_CALLBACK_LOG_RECORDS
-from litellm.types.llms.base import LiteLLMBaseModel
 
 
-class CallbackLogRecord(LiteLLMBaseModel):
+class CallbackLogRecord(BaseModel):
     """A single finished logging event to replay through the callbacks."""
 
     status: Literal["success", "failure"]
-    standard_logging_payload: dict[str, object]
+    standard_logging_payload: dict[str, Any]
     error: str | None = None
 
 
-class CallbackLogsRequest(LiteLLMBaseModel):
+class CallbackLogsRequest(BaseModel):
     """A batch of logging events posted by an external producer."""
 
     # Bounded so one POST can't trigger an unbounded callback/DB fan-out (each
@@ -29,14 +28,14 @@ class CallbackLogsRequest(LiteLLMBaseModel):
     records: list[CallbackLogRecord] = Field(..., max_length=MAX_CALLBACK_LOG_RECORDS)
 
 
-class CallbackLogFailure(LiteLLMBaseModel):
+class CallbackLogFailure(BaseModel):
     """A record that failed to replay, identified by its index in the batch."""
 
     index: int
     error: str
 
 
-class CallbackLogsResponse(LiteLLMBaseModel):
+class CallbackLogsResponse(BaseModel):
     """Per-batch result: counts plus per-record failure detail so the caller can
     distinguish a transient callback error from a structurally bad payload."""
 

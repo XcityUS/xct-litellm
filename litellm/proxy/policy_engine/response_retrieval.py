@@ -7,7 +7,6 @@ from pydantic import TypeAdapter
 
 from litellm._logging import verbose_proxy_logger
 from litellm.litellm_core_utils.core_helpers import get_or_create_metadata_bucket
-from litellm.litellm_core_utils.routing_common_utils import resolve_model_group_alias
 from litellm.proxy.common_utils.callback_utils import (
     add_guardrail_to_applied_guardrails_header,
     add_policy_sources_to_metadata,
@@ -19,6 +18,7 @@ from litellm.proxy.policy_engine.policy_matcher import PolicyMatcher
 from litellm.proxy.policy_engine.policy_registry import get_policy_registry
 from litellm.proxy.policy_engine.policy_resolver import PolicyResolver
 from litellm.responses.utils import ResponsesAPIRequestUtils
+from litellm.router_utils.common_utils import resolve_model_group_alias
 from litellm.types.proxy.policy_engine import PolicyMatchContext
 from litellm.types.proxy.policy_engine.pipeline_types import GuardrailPipeline
 
@@ -44,11 +44,10 @@ def _model_group_for_response_id(response_id: object, llm_router: "Router | None
     )
     if model_id is None:
         return UngovernedRetrieval("response id names no deployment")
-    registry: Final = llm_router.registry()
-    deployment: Final = registry.deployment(model_id)
+    deployment: Final = llm_router.get_deployment(model_id)
     if deployment is None:
         return UngovernedRetrieval("deployment no longer in the router")
-    hidden_by: Final = _submit_model_hidden_by(deployment.model_name, registry.aliases())
+    hidden_by: Final = _submit_model_hidden_by(deployment.model_name, llm_router.model_group_alias)
     if hidden_by is not None:
         verbose_proxy_logger.warning(
             "Policy engine: background response %s re-matches policies on retrieval as model group %s (%s), "
@@ -85,13 +84,11 @@ def _retrieval_context(
 
 
 def _post_call_pipelines_for_context(context: PolicyMatchContext) -> tuple[PolicyPipelines, Mapping[str, str]]:
-    matches: Final = get_attachment_registry().get_attached_policies_with_reasons(
-        context, PolicyMatcher.policy_applies(context)
-    )
+    matches: Final = get_attachment_registry().get_attached_policies_with_reasons(context)
     if not matches:
         return (), MappingProxyType({})
     applied_policy_names: Final = PolicyMatcher.get_policies_with_matching_conditions(
-        policy_names=[match["policy_name"] for match in matches],
+        policy_names=[match["policy_name"] for match in matches],  # mutable-ok: the matcher takes a list
         context=context,
     )
     post_call_pipelines: Final = tuple(
@@ -143,7 +140,9 @@ def attach_post_call_pipelines_to_retrieval(
             add_guardrail_to_applied_guardrails_header(request_data=data, guardrail_name=step.guardrail)
     add_policy_sources_to_metadata(
         request_data=data,
-        policy_sources={policy_name: policy_sources[policy_name] for policy_name, _pipeline in added},
+        policy_sources={  # mutable-ok: add_policy_sources_to_metadata takes a dict
+            policy_name: policy_sources[policy_name] for policy_name, _pipeline in added
+        },
     )
     verbose_proxy_logger.debug(
         "Policy engine: attached post_call pipelines to the retrieval of background response %s (model group %s): %s",

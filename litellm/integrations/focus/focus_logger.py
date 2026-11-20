@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any, ClassVar, Final, cast
-
-from typing_extensions import TypedDict, Unpack
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import litellm
 from litellm._logging import verbose_logger
@@ -17,8 +15,6 @@ from .destinations import FocusTimeWindow
 if TYPE_CHECKING:
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-    from litellm.proxy.db.db_transaction_queue.pod_lock_manager import PodLockManager
-
     from .export_engine import FocusExportEngine
 else:
     AsyncIOScheduler = Any
@@ -27,14 +23,8 @@ FOCUS_USAGE_DATA_JOB_NAME: Final = "focus_export_usage_data"
 DEFAULT_DRY_RUN_LIMIT: Final = 500
 
 
-class _CustomLoggerOptions(TypedDict, total=False, extra_items=object):
-    pass
-
-
 class FocusLogger(CustomLogger):
     """Coordinates Focus export jobs across transformer/serializer/destination layers."""
-
-    export_job_name: ClassVar[str] = FOCUS_USAGE_DATA_JOB_NAME
 
     def __init__(
         self,
@@ -46,7 +36,7 @@ class FocusLogger(CustomLogger):
         interval_seconds: int | None = None,
         prefix: str | None = None,
         destination_config: dict[str, Any] | None = None,
-        **kwargs: Unpack[_CustomLoggerOptions],
+        **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.provider = (provider or os.getenv("FOCUS_PROVIDER") or "s3").lower()
@@ -121,21 +111,21 @@ class FocusLogger(CustomLogger):
         """Entry point for scheduler jobs to run export cycle with locking."""
         from litellm.proxy.proxy_server import proxy_logging_obj
 
-        pod_lock_manager: PodLockManager | None = None
+        pod_lock_manager = None
         if proxy_logging_obj is not None:
-            writer: Final[object] = getattr(proxy_logging_obj, "db_spend_update_writer", None)
+            writer: Final = getattr(proxy_logging_obj, "db_spend_update_writer", None)
             if writer is not None:
                 pod_lock_manager = getattr(writer, "pod_lock_manager", None)
 
         if pod_lock_manager and pod_lock_manager.redis_cache:
-            acquired: Final = await pod_lock_manager.acquire_lock(cronjob_id=self.export_job_name)
+            acquired: Final = await pod_lock_manager.acquire_lock(cronjob_id=FOCUS_USAGE_DATA_JOB_NAME)
             if not acquired:
                 verbose_logger.debug("Focus export: unable to acquire pod lock")
                 return
             try:
                 await self._run_scheduled_export()
             finally:
-                await pod_lock_manager.release_lock(cronjob_id=self.export_job_name)
+                await pod_lock_manager.release_lock(cronjob_id=FOCUS_USAGE_DATA_JOB_NAME)
         else:
             await self._run_scheduled_export()
 

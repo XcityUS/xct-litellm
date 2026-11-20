@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-from typing import Final
-
 from fastapi import status
 
-from litellm.constants import INVALID_API_KEY_ERROR_MESSAGE
 from litellm.proxy._types import ProxyErrorTypes, ProxyException
 
 
@@ -30,10 +27,9 @@ class KeyNotFoundError(IdentityResolutionError, ProxyException):
     """
 
     def __init__(self, hashed_token: str) -> None:
-        self.hashed_token: Final = hashed_token
         ProxyException.__init__(
             self,
-            message=INVALID_API_KEY_ERROR_MESSAGE,
+            message=f"Authentication Error, Invalid proxy server token passed. key={hashed_token}, not found in db. Create key via `/key/generate` call.",
             type=ProxyErrorTypes.token_not_found_in_db,
             param="key",
             code=status.HTTP_401_UNAUTHORIZED,

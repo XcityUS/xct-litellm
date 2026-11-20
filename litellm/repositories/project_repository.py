@@ -2,20 +2,14 @@
 Project repository for database operations on LiteLLM_ProjectTable.
 """
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from litellm.models.project import LiteLLM_ProjectTable
 from litellm.repositories.base_repository import BaseRepository
 from litellm.repositories.prisma_protocols import TableActions
-from litellm.repositories.table_repositories import PrismaTableRepository
 
 if TYPE_CHECKING:
     from prisma import models as prisma_models
-
-
-class _ProjectTable(PrismaTableRepository["prisma_models.LiteLLM_ProjectTable"]):
-    table_name = "litellm_projecttable"
 
 
 class ProjectRepository(BaseRepository[LiteLLM_ProjectTable]):
@@ -23,7 +17,7 @@ class ProjectRepository(BaseRepository[LiteLLM_ProjectTable]):
 
     @property
     def table(self) -> TableActions["prisma_models.LiteLLM_ProjectTable"]:
-        return _ProjectTable(self._prisma_client).table
+        return self.prisma_client.db.litellm_projecttable
 
     @property
     def model_class(self) -> type[LiteLLM_ProjectTable]:
@@ -49,14 +43,14 @@ class ProjectRepository(BaseRepository[LiteLLM_ProjectTable]):
         description: str | None = None,
         team_id: str | None = None,
         budget_id: str | None = None,
-        metadata: Mapping[str, object] | None = None,
+        metadata: dict[str, Any] | None = None,
         models: list[str] | None = None,
         model_rpm_limit: dict[str, int] | None = None,
         model_tpm_limit: dict[str, int] | None = None,
         object_permission_id: str | None = None,
     ) -> LiteLLM_ProjectTable:
         """Create a new project."""
-        data: Final[dict[str, object]] = {
+        data: Final[dict[str, Any]] = {
             "created_by": created_by,
             "updated_by": created_by,
         }
@@ -91,7 +85,7 @@ class ProjectRepository(BaseRepository[LiteLLM_ProjectTable]):
         description: str | None = None,
         team_id: str | None = None,
         budget_id: str | None = None,
-        metadata: Mapping[str, object] | None = None,
+        metadata: dict[str, Any] | None = None,
         models: list[str] | None = None,
         model_rpm_limit: dict[str, int] | None = None,
         model_tpm_limit: dict[str, int] | None = None,
@@ -99,7 +93,7 @@ class ProjectRepository(BaseRepository[LiteLLM_ProjectTable]):
         object_permission_id: str | None = None,
     ) -> LiteLLM_ProjectTable | None:
         """Update a project."""
-        data: Final[dict[str, object]] = {"updated_by": updated_by}
+        data: Final[dict[str, Any]] = {"updated_by": updated_by}
         if project_alias is not None:
             data["project_alias"] = project_alias
         if description is not None:

@@ -22,8 +22,7 @@ from typing import Final
 import pytest
 
 from e2e_config import unique_marker
-from e2e_http import Result, StreamingResponse, Success, unwrap
-from e2e_metadata import Domain, Mode, Provider, Route, Subject, meta
+from e2e_http import Result, StreamingResponse, Success, UnknownApiError, unwrap
 from lifecycle import ResourceManager
 from management_client import MODEL_ACCESS_DENIED_MARKER, ManagementClient
 from models import (
@@ -45,7 +44,7 @@ from transport import Transport
 
 pytestmark = pytest.mark.e2e
 
-BACKING_MODEL: Final = "gpt-6-luna"
+BACKING_MODEL: Final = "gpt-4o-mini"
 DENIED_MODEL: Final = "gpt-5.5"
 MAX_BUDGET: Final = 25.0
 TPM_LIMIT: Final = 313131
@@ -136,6 +135,10 @@ def _key_info_everywhere(
     return MappingProxyType({replica: unwrap(read).info for replica, read in reads.items()})
 
 
+def _is_key_not_found(result: Result[KeyInfoResponse]) -> bool:
+    return isinstance(result, UnknownApiError) and result.status_code == 404
+
+
 def _assert_reads_back(info: KeyInfo, expected: KeyGenerateBody, replica: str) -> None:
     for field, observed, wanted in (
         ("key_alias", info.key_alias, expected.key_alias),
@@ -189,7 +192,6 @@ def _assert_chat_rejected_everywhere(client: ManagementClient, key: str, model: 
 
 
 class TestKeyLifecycle:
-    @meta(Subject(domain=Domain.MANAGEMENT, route=Route.KEY_MANAGEMENT))
     def test_create_echoes_every_field_written(
         self, client: ManagementClient, resources: ResourceManager, mock_deployment: str
     ) -> None:
@@ -208,7 +210,6 @@ class TestKeyLifecycle:
         ):
             assert observed == wanted, f"/key/generate echoed {field}={observed!r}, sent {wanted!r}"
 
-    @meta(Subject(domain=Domain.MANAGEMENT, route=Route.KEY_MANAGEMENT))
     def test_read_reflects_the_create_on_every_replica(
         self, client: ManagementClient, resources: ResourceManager, mock_deployment: str
     ) -> None:
@@ -224,7 +225,6 @@ class TestKeyLifecycle:
             )
 
     @pytest.mark.covers("mgmt.key.update.preserves_unrelated_fields")
-    @meta(Subject(domain=Domain.MANAGEMENT, route=Route.KEY_MANAGEMENT))
     def test_partial_update_changes_only_the_named_field(
         self, client: ManagementClient, resources: ResourceManager, mock_deployment: str
     ) -> None:
@@ -242,7 +242,6 @@ class TestKeyLifecycle:
             )
 
     @pytest.mark.covers("mgmt.key.update.clear_persists")
-    @meta(Subject(domain=Domain.MANAGEMENT, route=Route.KEY_MANAGEMENT))
     def test_explicit_null_clears_the_budget_and_its_reset_time(
         self, client: ManagementClient, resources: ResourceManager, mock_deployment: str
     ) -> None:
@@ -263,14 +262,6 @@ class TestKeyLifecycle:
                 info, created.written.model_copy(update={"max_budget": None, "budget_duration": None}), replica
             )
 
-    @meta(
-        Subject(
-            domain=Domain.PROXY_AUTH,
-            providers=(Provider.OPENAI,),
-            models=(BACKING_MODEL,),
-            mode=Mode.NONSTREAM,
-        )
-    )
     def test_key_serves_its_model_and_is_denied_others(
         self, client: ManagementClient, resources: ResourceManager, mock_deployment: str
     ) -> None:
@@ -287,15 +278,6 @@ class TestKeyLifecycle:
             f"403 body must be a model-access denial, got: {denied.body[:300]}"
         )
 
-    @meta(
-        Subject(
-            domain=Domain.MANAGEMENT,
-            route=Route.KEY_MANAGEMENT,
-            providers=(Provider.OPENAI,),
-            models=(BACKING_MODEL,),
-            mode=Mode.NONSTREAM,
-        )
-    )
     def test_delete_revokes_info_and_chat_on_every_replica(
         self, client: ManagementClient, resources: ResourceManager, mock_deployment: str
     ) -> None:
@@ -308,5 +290,10 @@ class TestKeyLifecycle:
 
         client.delete_key_strict(created.key)
 
-        _ = _key_info_everywhere(client, created.key, lambda info: info.status == "deleted")
+        _ = client.proxy.read_back_everywhere(
+            "/key/info",
+            params=KeyInfoParams(key=created.key),
+            response_type=KeyInfoResponse,
+            converged=_is_key_not_found,
+        )
         _assert_chat_rejected_everywhere(client, created.key, mock_deployment)

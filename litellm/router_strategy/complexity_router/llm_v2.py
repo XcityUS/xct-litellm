@@ -7,17 +7,15 @@ from dataclasses import dataclass
 from sys import float_info
 from typing import Annotated, Final, Literal, TypeAlias
 
-from pydantic import ConfigDict, Field, StrictFloat, StringConstraints, TypeAdapter, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StringConstraints, TypeAdapter
 from typing_extensions import ReadOnly, TypedDict
 
 from litellm.llms.base_llm.base_utils import (
     type_to_response_format_param,  # pyright: ignore[reportUnknownVariableType]  # legacy output validated below
 )
-from litellm.router_strategy.complexity_router.fuse_presets import ProfileText, resolve_fuse_profile
-from litellm.types.llms.base import LiteLLMBaseModel
 
 ShortText: TypeAlias = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=512)]
-VerdictText: TypeAlias = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+ProfileText: TypeAlias = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 
 
 class _SolverProfile(TypedDict):
@@ -81,7 +79,7 @@ these forecasts are calibrated. Do not optimize cost or output a selected model.
 Return only JSON matching the response schema. Keep text fields concise."""
 
 
-class LLMV2Demands(LiteLLMBaseModel):
+class LLMV2Demands(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     reasoning: Literal["routine", "multistep", "open_ended", "unknown"]
@@ -89,30 +87,30 @@ class LLMV2Demands(LiteLLMBaseModel):
     specification: Literal["clear", "ambiguous", "unknown"]
 
 
-class LLMV2SolverForecast(LiteLLMBaseModel):
+class LLMV2SolverForecast(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    likely_failure: VerdictText
+    likely_failure: ShortText
     p_solve: StrictFloat = Field(ge=0.0, le=1.0)
 
 
-class LLMV2SolverForecasts(LiteLLMBaseModel):
+class LLMV2SolverForecasts(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     efficient: LLMV2SolverForecast
     capable: LLMV2SolverForecast
 
 
-class LLMV2Verdict(LiteLLMBaseModel):
+class LLMV2Verdict(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    crux: VerdictText
+    crux: ShortText
     demands: LLMV2Demands
     verification: Literal["relevant", "partial", "unavailable", "unknown"]
     forecasts: LLMV2SolverForecasts
 
 
-class LLMV2ProbabilityCalibration(LiteLLMBaseModel):
+class LLMV2ProbabilityCalibration(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     slope: float = Field(gt=0.0, allow_inf_nan=False)
@@ -127,7 +125,7 @@ class LLMV2ProbabilityCalibration(LiteLLMBaseModel):
         return exponential / (1.0 + exponential)
 
 
-class LLMV2Calibration(LiteLLMBaseModel):
+class LLMV2Calibration(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     version: ShortText
@@ -136,46 +134,25 @@ class LLMV2Calibration(LiteLLMBaseModel):
     capable: LLMV2ProbabilityCalibration
 
 
-class LLMV2Config(LiteLLMBaseModel):
+class LLMV2Config(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     efficient_tier: str = "SIMPLE"
     capable_tier: str = "REASONING"
-    efficient_profile: ProfileText | None = None
-    capable_profile: ProfileText | None = None
-    harness: ProfileText | None = None
-    efficient_profile_preset: str | None = None
-    capable_profile_preset: str | None = None
-    harness_preset: str | None = None
+    efficient_profile: ProfileText
+    capable_profile: ProfileText
+    harness: ProfileText
     max_quality_gap: float = Field(ge=0.0, le=1.0, description="Maximum estimated success loss allowed for efficient.")
     max_output_tokens: int = Field(default=1024, ge=1)
     response_format: Literal["json_schema", "json_object"] = "json_schema"
     calibration: LLMV2Calibration | None = None
 
-    @model_validator(mode="after")
-    def validate_profiles(self) -> LLMV2Config:
-        self._profile_texts()
-        return self
-
-    def _profile_texts(self) -> tuple[str, str, str]:
-        efficient: Final = resolve_fuse_profile(self.efficient_profile, self.efficient_profile_preset, "model")
-        capable: Final = resolve_fuse_profile(self.capable_profile, self.capable_profile_preset, "model")
-        harness: Final = resolve_fuse_profile(self.harness, self.harness_preset, "harness")
-        if efficient is None:
-            raise ValueError("efficient_profile requires text or a known efficient_profile_preset")
-        if capable is None:
-            raise ValueError("capable_profile requires text or a known capable_profile_preset")
-        if harness is None:
-            raise ValueError("harness requires text or a known harness_preset")
-        return efficient, capable, harness
-
     def system_prompt(self, efficient_model: str, capable_model: str) -> str:
-        efficient, capable, harness = self._profile_texts()
         profiles: Final[_SolverProfiles] = {
             "prompt_version": LLM_V2_PROMPT_VERSION,
-            "harness": harness,
-            "efficient": {"model": efficient_model, "profile": efficient},
-            "capable": {"model": capable_model, "profile": capable},
+            "harness": self.harness,
+            "efficient": {"model": efficient_model, "profile": self.efficient_profile},
+            "capable": {"model": capable_model, "profile": self.capable_profile},
         }
         schema: Final = (
             "\n\nResponse JSON schema:\n" + json.dumps(LLMV2Verdict.model_json_schema())

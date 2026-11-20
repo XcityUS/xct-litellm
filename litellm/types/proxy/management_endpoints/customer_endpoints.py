@@ -1,8 +1,7 @@
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from litellm.models.budget import LiteLLM_BudgetTableFull
 from litellm.models.end_user import LiteLLM_EndUserTable
-from litellm.types.llms.base import LiteLLMBaseModel
 
 
 class CustomerResponse(LiteLLM_EndUserTable):
@@ -16,14 +15,14 @@ class CustomerResponse(LiteLLM_EndUserTable):
     litellm_budget_table: LiteLLM_BudgetTableFull | None = None  # pyright: ignore
 
 
-class BlockUsersResponse(LiteLLMBaseModel):
+class BlockUsersResponse(BaseModel):
     blocked_users: list[LiteLLM_EndUserTable]
 
 
-class UnblockUsersResponse(LiteLLMBaseModel):
+class UnblockUsersResponse(BaseModel):
     blocked_users: list[str] = Field(description="User IDs that remain blocked after this unblock call")
 
 
-class DeleteCustomersResponse(LiteLLMBaseModel):
+class DeleteCustomersResponse(BaseModel):
     deleted_customers: int
     message: str

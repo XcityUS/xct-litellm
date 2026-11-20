@@ -1,21 +1,11 @@
-from collections.abc import AsyncIterator, Iterator, Mapping
-from typing import TYPE_CHECKING, Final
+from typing import Any, Final
 
 import litellm
-from litellm.llms.anthropic.chat.transformation import AnthropicConfig, JsonModeRequest
+from litellm.llms.anthropic.chat.transformation import AnthropicConfig
 from litellm.secret_managers.main import get_secret_str
 from litellm.types.llms.openai import AllMessageValues
-from litellm.types.utils import ModelResponse
 
-from .common_utils import (
-    BedrockClaudePlatformMixin,
-    filter_claude_platform_request_body,
-    resolve_unsupported_override,
-)
-
-if TYPE_CHECKING:
-    from litellm.litellm_core_utils.litellm_logging import Logging
-    from litellm.llms.anthropic.chat.handler import ModelResponseIterator
+from .common_utils import BedrockClaudePlatformMixin
 
 
 class BedrockClaudePlatformConfig(BedrockClaudePlatformMixin, AnthropicConfig):
@@ -28,9 +18,6 @@ class BedrockClaudePlatformConfig(BedrockClaudePlatformMixin, AnthropicConfig):
         return "bedrock"
 
     def should_strip_billing_metadata(self) -> bool:
-        return True
-
-    def runs_hosted_mcp(self) -> bool:
         return True
 
     def validate_environment(
@@ -75,53 +62,20 @@ class BedrockClaudePlatformConfig(BedrockClaudePlatformMixin, AnthropicConfig):
             ),
             code_execution_tool_used=self.is_code_execution_tool_used(tools=optional_params.get("tools")),
             container_with_skills_used=self.is_container_with_skills_used(optional_params=optional_params),
-            thinking=optional_params.get("thinking"),  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]  # optional_params is the base config's bare dict
         )
         anthropic_headers["anthropic-workspace-id"] = workspace_id
         return {**headers, **anthropic_headers}
 
-    def transform_request(
-        self,
-        model: str,
-        messages: list[AllMessageValues],
-        optional_params: dict[str, object],
-        litellm_params: dict[str, object],
-        headers: dict[str, str],
-    ) -> dict[str, object]:
-        return super().transform_request(
-            model=model,
-            messages=messages,
-            optional_params=filter_claude_platform_request_body(
-                optional_params,
-                unsupported_override=resolve_unsupported_override(litellm_params, optional_params=optional_params),
-            ),
-            litellm_params=litellm_params,
-            headers=headers,
-        )
-
     def get_model_response_iterator(
         self,
-        streaming_response: Iterator[str] | AsyncIterator[str] | ModelResponse,
+        streaming_response: Any,
         sync_stream: bool,
         json_mode: bool | None = False,
-    ) -> "ModelResponseIterator":
-        return self.get_model_response_iterator_for_request(
-            streaming_response=streaming_response, sync_stream=sync_stream, json_mode=json_mode, optional_params={}
-        )
-
-    def get_model_response_iterator_for_request(
-        self,
-        streaming_response: Iterator[str] | AsyncIterator[str] | ModelResponse,
-        sync_stream: bool,
-        json_mode: bool | None,
-        optional_params: Mapping[str, object],
-        logging_obj: "Logging | None" = None,
-    ) -> "ModelResponseIterator":
+    ) -> Any:
         from litellm.llms.anthropic.chat.handler import ModelResponseIterator
 
         return ModelResponseIterator(
             streaming_response=streaming_response,
             sync_stream=sync_stream,
             json_mode=bool(json_mode),
-            response_format_schema=JsonModeRequest.model_validate(optional_params).tool_schema() if json_mode else None,
         )

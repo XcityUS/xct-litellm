@@ -12,10 +12,9 @@ from functools import partial
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Literal, Protocol
 
-from pydantic import ConfigDict
+from pydantic import BaseModel, ConfigDict
 
 from litellm.integrations.custom_guardrail import CustomGuardrail, log_guardrail_information
-from litellm.types.llms.base import LiteLLMBaseModel
 from litellm.types.llms.openai import ChatCompletionUserMessage
 from litellm.types.proxy.guardrails.guardrail_hooks.conduct import ConductGuardrailConfigModel
 
@@ -61,7 +60,7 @@ def decision_status(decision: ConductDecision) -> GuardrailStatus:
     return "guardrail_flagged" if decision.verdict in FLAGGED_VERDICTS else "success"
 
 
-class ConductVerdict(LiteLLMBaseModel):
+class ConductVerdict(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     verdict: str
@@ -124,9 +123,6 @@ else:
         @staticmethod
         def get_config_model() -> type[ConductGuardrailConfigModel]:
             return ConductGuardrailConfigModel
-
-        def supports_structured_messages(self) -> bool:
-            return False
 
         @log_guardrail_information
         async def apply_guardrail(

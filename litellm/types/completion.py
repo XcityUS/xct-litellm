@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Coroutine, Iterable, Mapping
+from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Union
 
-from pydantic import ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from typing_extensions import Required, TypedDict
-
-from litellm.types.llms.base import LiteLLMBaseModel
 
 if TYPE_CHECKING:
     import httpx
@@ -174,9 +172,9 @@ ChatCompletionMessageParam = (
 )
 
 
-class CompletionRequest(LiteLLMBaseModel):
+class CompletionRequest(BaseModel):
     model: str
-    messages: list[ChatCompletionMessageParam] = Field(default=[])
+    messages: list[ChatCompletionMessageParam] = []
     timeout: float | int | None = None
     temperature: float | None = None
     top_p: float | None = None
@@ -206,7 +204,7 @@ class CompletionRequest(LiteLLMBaseModel):
 
 
 @dataclass(frozen=True, slots=True)
-class CompletionDispatchContext:
+class _CompletionDispatchContext:
     _azure_detection_model: str
     acompletion: bool
     api_base: str | None
@@ -229,24 +227,18 @@ class CompletionDispatchContext:
     model: str
     model_response: ModelResponse
     optional_params: dict
-    optional_params_for_model_info: Callable[[Mapping[str, object] | None], dict[str, object]]
     organization: str | None
     provider_config: BaseConfig | None
-    request_params: Mapping[str, object]
     shared_session: ClientSession | None
     stream: bool | None
     temperature: float | None
     text_completion: bool
     timeout: float | str | httpx.Timeout | None
-    timeout_for_optional_params: Callable[[Mapping[str, object]], float | httpx.Timeout]
     top_p: float | None
 
 
-_CompletionDispatchContext = CompletionDispatchContext
-
-
 _CompletionDispatchResult = Union[
-    Coroutine[object, object, Union["ModelResponse", "CustomStreamWrapper"]],
+    Coroutine[Any, Any, Union["ModelResponse", "CustomStreamWrapper"]],
     "ModelResponse",
     "CustomStreamWrapper",
 ]

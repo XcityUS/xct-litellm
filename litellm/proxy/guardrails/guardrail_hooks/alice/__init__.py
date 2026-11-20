@@ -18,18 +18,17 @@ def initialize_guardrail(litellm_params: "LitellmParams", guardrail: "Guardrail"
         guardrail_name=guardrail.get("guardrail_name", ""),
         event_hook=litellm_params.mode,
         default_on=litellm_params.default_on,
-        timeout=litellm_params.timeout,
     )
 
     litellm.logging_callback_manager.add_litellm_callback(_alice_guardrail_callback)
     return _alice_guardrail_callback
 
 
-guardrail_initializer_registry: Final = {
+guardrail_initializer_registry: Final = {  # mutable-ok: module-level registry, built once and never mutated
     SupportedGuardrailIntegrations.ALICE.value: initialize_guardrail,
 }
 
 
-guardrail_class_registry: Final = {
+guardrail_class_registry: Final = {  # mutable-ok: module-level registry, built once and never mutated
     SupportedGuardrailIntegrations.ALICE.value: AliceGuardrail,
 }

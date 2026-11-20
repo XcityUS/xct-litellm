@@ -10,9 +10,8 @@ Model name handling:
 - This module focuses on request/response transformation only
 """
 
-from typing import Final, cast  # noqa: TID251  # extra_body carries raw fields the TypedDict lacks
+from typing import Final
 
-from litellm.llms.base_llm.embedding.transformation import split_extra_body
 from litellm.types.utils import EmbeddingResponse, Usage
 
 from .types import (
@@ -85,12 +84,7 @@ class VertexBGEConfig:
             vertex_text_embedding_input_list.append(embedding_input)
 
         vertex_request["instances"] = vertex_text_embedding_input_list
-        body_params, extra_body = split_extra_body(optional_params)
-        vertex_request["parameters"] = (
-            cast(  # cast-ok: extra_body carries raw Vertex fields the TypedDict does not list
-                EmbeddingParameters, {**extra_body, **body_params}
-            )
-        )
+        vertex_request["parameters"] = EmbeddingParameters(**optional_params)
 
         return vertex_request
 

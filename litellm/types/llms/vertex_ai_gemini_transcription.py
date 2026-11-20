@@ -1,9 +1,7 @@
 from typing import Literal
 
-from pydantic import ConfigDict
+from pydantic import BaseModel, ConfigDict
 from typing_extensions import ReadOnly, TypedDict
-
-from litellm.types.llms.base import LiteLLMBaseModel
 
 
 class VertexGeminiTranscriptionInlineData(TypedDict):
@@ -33,32 +31,32 @@ class VertexGeminiTranscriptionRequest(TypedDict):
     generationConfig: ReadOnly[VertexGeminiTranscriptionGenerationConfig]
 
 
-class VertexGeminiTranscriptionResponsePart(LiteLLMBaseModel):
+class VertexGeminiTranscriptionResponsePart(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     text: str | None = None
 
 
-class VertexGeminiTranscriptionResponseContent(LiteLLMBaseModel):
+class VertexGeminiTranscriptionResponseContent(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     parts: tuple[VertexGeminiTranscriptionResponsePart, ...] = ()
 
 
-class VertexGeminiTranscriptionCandidate(LiteLLMBaseModel):
+class VertexGeminiTranscriptionCandidate(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     content: VertexGeminiTranscriptionResponseContent | None = None
 
 
-class VertexGeminiTranscriptionModalityTokens(LiteLLMBaseModel):
+class VertexGeminiTranscriptionModalityTokens(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     modality: str | None = None
     tokenCount: int = 0
 
 
-class VertexGeminiTranscriptionUsageMetadata(LiteLLMBaseModel):
+class VertexGeminiTranscriptionUsageMetadata(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     promptTokenCount: int = 0
@@ -67,8 +65,8 @@ class VertexGeminiTranscriptionUsageMetadata(LiteLLMBaseModel):
     promptTokensDetails: tuple[VertexGeminiTranscriptionModalityTokens, ...] = ()
 
 
-class VertexGeminiTranscriptionResponse(LiteLLMBaseModel):
-    model_config = ConfigDict(extra="ignore", hide_input_in_errors=True)
+class VertexGeminiTranscriptionResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
 
     candidates: tuple[VertexGeminiTranscriptionCandidate, ...] = ()
     usageMetadata: VertexGeminiTranscriptionUsageMetadata | None = None

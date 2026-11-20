@@ -1,5 +1,4 @@
-from collections.abc import Mapping, Sequence
-from typing import Literal, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from typing_extensions import NotRequired, ReadOnly, TypedDict
 
@@ -7,11 +6,8 @@ from litellm.types.llms.anthropic import (
     AnthropicResponseContentBlockText,
     AnthropicResponseContentBlockToolUse,
     AnthropicStopDetails,
-    CompactionBlock,
     ContextManagementResponse,
-    SafeguardResult,
     ServerToolUsage,
-    UsageIteration,
 )
 
 
@@ -20,7 +16,7 @@ class AnthropicResponseTextBlock(TypedDict, total=False):
     Anthropic Response Text Block: https://docs.anthropic.com/en/api/messages
     """
 
-    citations: list[dict[str, object]] | None
+    citations: list[dict[str, Any]] | None
     text: str
     type: Literal["text"]
 
@@ -60,7 +56,6 @@ AnthropicResponseContentBlock: TypeAlias = (
     | AnthropicResponseToolUseBlock
     | AnthropicResponseThinkingBlock
     | AnthropicResponseRedactedThinkingBlock
-    | CompactionBlock
 )
 
 
@@ -71,7 +66,6 @@ class AnthropicUsage(TypedDict, total=False):
 
     input_tokens: int
     output_tokens: int
-    iterations: ReadOnly[Sequence[UsageIteration]]
 
     """
     Cache Tokens Used
@@ -97,13 +91,9 @@ class AnthropicMessagesResponse(TypedDict, total=False):
     id: str
     model: str | None  # This represents the Model type from Anthropic
     role: Literal["assistant"] | None
-    stop_reason: ReadOnly[
-        Literal["end_turn", "max_tokens", "stop_sequence", "tool_use", "refusal", "compaction", "pause_turn"] | None
-    ]
+    stop_reason: Literal["end_turn", "max_tokens", "stop_sequence", "tool_use", "refusal"] | None
     stop_details: NotRequired[ReadOnly[AnthropicStopDetails | None]]
     stop_sequence: str | None
     type: Literal["message"] | None
     usage: AnthropicUsage | None
     context_management: NotRequired[ContextManagementResponse]
-    safeguard_results: NotRequired[ReadOnly[Sequence[SafeguardResult]]]
-    input_transformations: NotRequired[ReadOnly[Sequence[Mapping[str, object]]]]

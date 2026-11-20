@@ -1,9 +1,6 @@
-from collections.abc import Mapping
 from typing import Final, Literal
 
-from pydantic import ConfigDict, Field, JsonValue, TypeAdapter
-
-from litellm.types.llms.base_model import LiteLLMBaseModel
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter
 
 TIER_NAMES: Final[tuple[str, ...]] = ("SIMPLE", "MEDIUM", "COMPLEX", "REASONING")
 AUTOROUTER_MODEL_NAME: Final = "autorouter"
@@ -13,14 +10,14 @@ class ConfigGenerationError(Exception):
     """Raised when an AutorouteConfig references a model the discovery step didn't find."""
 
 
-class DiscoveredModel(LiteLLMBaseModel):
+class DiscoveredModel(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     name: str
     mode: str = "chat"
 
 
-class _RawModelListing(LiteLLMBaseModel):
+class _RawModelListing(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     id: str
@@ -47,12 +44,12 @@ def embedding_models(models: tuple[DiscoveredModel, ...]) -> tuple[DiscoveredMod
     return tuple(m for m in models if m.mode == "embedding")
 
 
-class HeuristicClassifier(LiteLLMBaseModel):
+class HeuristicClassifier(BaseModel):
     model_config = ConfigDict(frozen=True)
     kind: Literal["heuristic"] = "heuristic"
 
 
-class LLMClassifier(LiteLLMBaseModel):
+class LLMClassifier(BaseModel):
     model_config = ConfigDict(frozen=True)
     kind: Literal["llm"] = "llm"
     model: str
@@ -62,12 +59,12 @@ class LLMClassifier(LiteLLMBaseModel):
 ClassifierChoice = HeuristicClassifier | LLMClassifier
 
 
-class NoSemanticMatching(LiteLLMBaseModel):
+class NoSemanticMatching(BaseModel):
     model_config = ConfigDict(frozen=True)
     kind: Literal["none"] = "none"
 
 
-class KeywordTierRule(LiteLLMBaseModel):
+class KeywordTierRule(BaseModel):
     model_config = ConfigDict(frozen=True)
     keywords: tuple[str, ...]
     tier: str
@@ -83,7 +80,7 @@ DEFAULT_KEYWORD_TIER_RULES: Final[tuple[KeywordTierRule, ...]] = (
 )
 
 
-class SemanticMatching(LiteLLMBaseModel):
+class SemanticMatching(BaseModel):
     model_config = ConfigDict(frozen=True)
     kind: Literal["semantic"] = "semantic"
     embedding_model: str
@@ -94,7 +91,7 @@ class SemanticMatching(LiteLLMBaseModel):
 SemanticMatchingChoice = NoSemanticMatching | SemanticMatching
 
 
-class AutorouteConfig(LiteLLMBaseModel):
+class AutorouteConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     base_url: str
@@ -217,14 +214,14 @@ def build_generated_proxy_config(config: AutorouteConfig, master_key: str) -> di
 def master_key_from_config(config: dict[str, JsonValue]) -> str | None:
     """The master key persisted in a generated config, or None when absent or blank.
 
-    Single definition of "this config already has a usable key", shared by `start` (reuse
+    Single definition of "this config already has a usable key", shared by `up` (reuse
     instead of minting) and the configure wizard (carry the key forward on rewrite) so the
     two sites can never disagree on what counts as one. Returned verbatim, never stripped:
     the proxy authenticates against the exact bytes under general_settings.master_key, so a
     normalized copy here would diverge from what the proxy expects.
     """
     general_settings: Final = config.get("general_settings")
-    if not isinstance(general_settings, Mapping):
+    if not isinstance(general_settings, dict):
         return None
     master_key: Final = general_settings.get("master_key")
     if isinstance(master_key, str) and master_key.strip():

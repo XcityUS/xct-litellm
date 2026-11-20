@@ -2,16 +2,14 @@
 Types and field definitions for router settings management endpoints
 """
 
-from typing import Final, Literal
+from typing import Any, Final, Literal
 
-from pydantic import Field, field_validator
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, Field, field_validator
 
 # Fallback Management Types
 
 
-class FallbackCreateRequest(LiteLLMBaseModel):
+class FallbackCreateRequest(BaseModel):
     """Request model for creating/updating fallbacks"""
 
     model: str = Field(description="The model name to configure fallbacks for (e.g., 'gpt-3.5-turbo')")
@@ -41,7 +39,7 @@ class FallbackCreateRequest(LiteLLMBaseModel):
         return v.strip()
 
 
-class FallbackResponse(LiteLLMBaseModel):
+class FallbackResponse(BaseModel):
     """Response model for fallback operations"""
 
     model: str = Field(description="The model name")
@@ -50,7 +48,7 @@ class FallbackResponse(LiteLLMBaseModel):
     message: str = Field(description="Success message")
 
 
-class FallbackGetResponse(LiteLLMBaseModel):
+class FallbackGetResponse(BaseModel):
     """Response model for getting fallbacks"""
 
     model: str = Field(description="The model name")
@@ -58,7 +56,7 @@ class FallbackGetResponse(LiteLLMBaseModel):
     fallback_type: str = Field(description="Type of fallback")
 
 
-class FallbackDeleteResponse(LiteLLMBaseModel):
+class FallbackDeleteResponse(BaseModel):
     """Response model for deleting fallbacks"""
 
     model: str = Field(description="The model name")
@@ -69,12 +67,12 @@ class FallbackDeleteResponse(LiteLLMBaseModel):
 # Router Settings Types
 
 
-class RouterSettingsField(LiteLLMBaseModel):
+class RouterSettingsField(BaseModel):
     field_name: str
     field_type: str
-    field_value: object
+    field_value: Any
     field_description: str
-    field_default: object = None
+    field_default: Any = None
     options: list[str] | None = None  # For fields with predefined options/enum values
     ui_field_name: str  # User-friendly display name
     link: str | None = None  # Documentation link for the field
@@ -82,7 +80,6 @@ class RouterSettingsField(LiteLLMBaseModel):
 
 # Routing strategy descriptions
 ROUTING_STRATEGY_DESCRIPTIONS: Final[dict[str, str]] = {
-    "priority": "Routes group calls to the lowest-priority-number available model, with failover to higher numbers. Equal priorities share traffic. Direct member calls keep their existing policy.",
     "simple-shuffle": "Randomly picks a deployment from the list. Simple and fast.",
     "least-busy": "Routes to the deployment with the lowest number of ongoing requests.",
     "latency-based-routing": "Routes to the deployment with the lowest latency over a sliding window.",

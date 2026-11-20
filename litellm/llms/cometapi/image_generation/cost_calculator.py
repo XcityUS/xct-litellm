@@ -1,22 +1,19 @@
-from typing import Final
+from typing import Any, Final
 
 import litellm
-from litellm.litellm_core_utils.llm_cost_calc.utils import resolve_image_model_info
-from litellm.types.utils import ImageResponse, ModelInfo
+from litellm.types.utils import ImageResponse
 
 
 def cost_calculator(
     model: str,
-    image_response: object,
-    model_info: ModelInfo | None = None,
+    image_response: Any,
 ) -> float:
     """
     CometAPI image generation cost calculator
     """
-    _model_info: Final = resolve_image_model_info(
+    _model_info: Final = litellm.get_model_info(
         model=model,
         custom_llm_provider=litellm.LlmProviders.COMETAPI.value,
-        model_info=model_info,
     )
     output_cost_per_image: Final[float] = _model_info.get("output_cost_per_image") or 0.0
     num_images: int = 0

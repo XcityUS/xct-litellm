@@ -7,7 +7,7 @@ maps its MIME type to a Model Armor ``byteDataType``, and returns the decoded by
 guardrail hooks can submit them.
 
 ``plan_file_scans`` classifies each block: blocks with no inline bytes (``file_id`` or remote
-``gs://`` / ``s3://`` / ``http(s)`` references) and supported documents whose base64 will not decode are
+``gs://`` / ``http(s)`` references) and supported documents whose base64 will not decode are
 reported as unscannable so the guardrail hook can fail closed (blocking unless ``fail_on_error``
 is false) rather than letting an unscanned document reach the model.
 """
@@ -19,15 +19,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Annotated, Final, Literal
 
-from pydantic import ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from litellm._logging import verbose_proxy_logger
-from litellm.types.llms.base import LiteLLMBaseModel
 from litellm.types.llms.openai import AllMessageValues
 
 MODEL_ARMOR_MAX_FILE_SIZE_BYTES: Final = 4 * 1024 * 1024
 
-_REMOTE_URI_SCHEMES: Final = ("gs://", "s3://", "http://", "https://")
+_REMOTE_URI_SCHEMES: Final = ("gs://", "http://", "https://")
 
 ModelArmorByteDataType = Literal["PDF", "WORD_DOCUMENT", "EXCEL_DOCUMENT", "POWERPOINT_DOCUMENT", "CSV", "TXT"]
 
@@ -73,26 +72,26 @@ class FileScanPlan:
     unscannable_count: int
 
 
-class _FileData(LiteLLMBaseModel):
+class _FileData(BaseModel):
     model_config = ConfigDict(extra="ignore")
     file_data: str | None = None
     format: str | None = None
     filename: str | None = None
 
 
-class _FileBlock(LiteLLMBaseModel):
+class _FileBlock(BaseModel):
     model_config = ConfigDict(extra="ignore")
     type: Literal["file"]
     file: _FileData
 
 
-class _DocumentSource(LiteLLMBaseModel):
+class _DocumentSource(BaseModel):
     model_config = ConfigDict(extra="ignore")
     data: str | None = None
     media_type: str | None = None
 
 
-class _DocumentBlock(LiteLLMBaseModel):
+class _DocumentBlock(BaseModel):
     model_config = ConfigDict(extra="ignore")
     type: Literal["document"]
     source: _DocumentSource

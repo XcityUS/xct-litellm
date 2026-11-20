@@ -1,3 +1,0 @@
-{{- if and (include "litellm.gateway.render" .) .Values.gateway.hpa.enabled }}
-{{- include "litellm.workload.hpa" . }}
-{{- end }}

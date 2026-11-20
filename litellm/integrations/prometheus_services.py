@@ -3,9 +3,7 @@
 #    On success + failure, log events to Prometheus for litellm / adjacent services (litellm, redis, postgres, llm api providers)
 
 
-from dataclasses import dataclass
-from functools import lru_cache
-from typing import TYPE_CHECKING, Final
+from typing import Final
 
 import litellm
 from litellm._logging import print_verbose, verbose_logger
@@ -18,42 +16,6 @@ from litellm.types.services import (
 )
 
 FAILED_REQUESTS_LABELS: Final = ["error_class", "function_name"]
-
-if TYPE_CHECKING:
-    from prometheus_client import Counter as PrometheusCounter
-    from prometheus_client import Gauge
-
-
-@dataclass(frozen=True, slots=True)
-class _RedisBreakerCollectors:
-    state: "Gauge"
-    transitions: "PrometheusCounter"
-    failures: "PrometheusCounter"
-
-
-@lru_cache(maxsize=1)
-def _redis_breaker_collectors() -> _RedisBreakerCollectors:
-    from prometheus_client import Counter as PrometheusCounter
-    from prometheus_client import Gauge
-
-    return _RedisBreakerCollectors(
-        state=Gauge(
-            "litellm_redis_circuit_breaker_state",
-            "Number of Redis circuit breakers currently in each state",
-            labelnames=("state",),
-            multiprocess_mode="livesum",
-        ),
-        transitions=PrometheusCounter(
-            "litellm_redis_circuit_breaker_transitions",
-            "Redis circuit breaker state transitions",
-            labelnames=("state",),
-        ),
-        failures=PrometheusCounter(
-            "litellm_redis_circuit_breaker_failures",
-            "Redis health failures counted by the circuit breaker",
-            labelnames=("failure_class",),
-        ),
-    )
 
 
 class PrometheusServicesLogger:
@@ -79,11 +41,6 @@ class PrometheusServicesLogger:
             self.Counter = Counter
             self.Gauge = Gauge
             self.REGISTRY = REGISTRY
-            breaker_collectors: Final = _redis_breaker_collectors()
-            self.redis_breaker_state = breaker_collectors.state
-            self.redis_breaker_transitions = breaker_collectors.transitions
-            self.redis_breaker_failures = breaker_collectors.failures
-            self._refresh_redis_breaker_gauge()
 
             verbose_logger.debug("in init prometheus services metrics")
 
@@ -141,20 +98,6 @@ class PrometheusServicesLogger:
             return DEFAULT_METRICS
         return metrics
 
-    def _refresh_redis_breaker_gauge(self) -> None:
-        from litellm.caching.redis_cache import redis_breaker_state_counts
-
-        counts: Final = redis_breaker_state_counts()
-        for state in ("closed", "open", "half_open"):
-            self.redis_breaker_state.labels(state).set(counts.get(state, 0))
-
-    def redis_breaker_hook(self, transitions_to: str | None, failure_class: str | None) -> None:
-        self._refresh_redis_breaker_gauge()
-        if transitions_to is not None:
-            self.redis_breaker_transitions.labels(transitions_to).inc()
-        if failure_class is not None:
-            self.redis_breaker_failures.labels(failure_class).inc()
-
     def is_metric_registered(self, metric_name) -> bool:
         # Use _names_to_collectors (O(1)) instead of REGISTRY.collect() (O(n)) to avoid
         # perf regression when a new Router is created per request (e.g. router_settings in DB).
@@ -170,9 +113,7 @@ class PrometheusServicesLogger:
         """
         Helper function to get a metric from the registry by name.
         """
-        return self.REGISTRY._names_to_collectors.get(  # pyright: ignore[reportPrivateUsage]  # Registry lookup has no public API
-            metric_name
-        )
+        return self.REGISTRY._names_to_collectors.get(metric_name)
 
     def create_histogram(self, service: str, type_of_request: str):
         metric_name: Final = f"litellm_{service}_{type_of_request}"
@@ -255,7 +196,7 @@ class PrometheusServicesLogger:
                         labels=payload.service.value,
                         amount=payload.duration,
                     )
-                elif isinstance(obj, self.Counter) and "total_requests" in obj._name:  # pyright: ignore[reportPrivateUsage]  # Metric names have no public accessor
+                elif isinstance(obj, self.Counter) and "total_requests" in obj._name:
                     self.increment_counter(
                         counter=obj,
                         labels=payload.service.value,
@@ -292,7 +233,7 @@ class PrometheusServicesLogger:
                         labels=payload.service.value,
                         amount=payload.duration,
                     )
-                elif isinstance(obj, self.Counter) and "total_requests" in obj._name:  # pyright: ignore[reportPrivateUsage]  # Metric names have no public accessor
+                elif isinstance(obj, self.Counter) and "total_requests" in obj._name:
                     self.increment_counter(
                         counter=obj,
                         labels=payload.service.value,
@@ -321,7 +262,7 @@ class PrometheusServicesLogger:
             for obj in prom_objects:
                 # increment both failed and total requests
                 if isinstance(obj, self.Counter):
-                    if "failed_requests" in obj._name:  # pyright: ignore[reportPrivateUsage]  # Metric names have no public accessor
+                    if "failed_requests" in obj._name:
                         self.increment_counter(
                             counter=obj,
                             labels=payload.service.value,

@@ -24,20 +24,17 @@ Design notes (intentional divergences from the framework defaults):
 
 import asyncio
 import os
-from collections.abc import Mapping
 from datetime import datetime
-from typing import TYPE_CHECKING, Final, Literal, Optional
+from typing import TYPE_CHECKING, Any, Final, Literal, Optional
 
 from fastapi.exceptions import HTTPException
-from pydantic import TypeAdapter
-from typing_extensions import ReadOnly, TypedDict, Unpack
 
 from litellm._logging import verbose_proxy_logger
 from litellm.integrations.custom_guardrail import (
     CustomGuardrail,
     log_guardrail_information,
 )
-from litellm.litellm_core_utils.core_helpers import attribute_or_none, iter_items, redact_nested_match_and_regex_keys
+from litellm.litellm_core_utils.core_helpers import redact_nested_match_and_regex_keys
 from litellm.litellm_core_utils.sensitive_data_masker import mask_credentials_in_payload
 from litellm.llms.custom_httpx.http_handler import (
     get_async_httpx_client,
@@ -57,10 +54,6 @@ if TYPE_CHECKING:
     from litellm.types.proxy.guardrails.guardrail_hooks.base import (
         GuardrailConfigModel,
     )
-
-
-def _dict_fields(value: object) -> Mapping[str, object] | None:
-    return value if isinstance(value, dict) else None
 
 
 def _sanitize_scan_result_for_logging(scan_result: dict) -> dict:
@@ -83,12 +76,6 @@ _DEFAULT_POLICIES: Final = [
     "Default_Policy_GeneralPromptAttackProtection",
 ]
 
-_RESPONSE_BODY: Final = TypeAdapter(dict[str, object])
-
-
-class _CustomGuardrailOptions(TypedDict, total=False, extra_items=object):
-    supported_event_hooks: ReadOnly[list[GuardrailEventHooks]]
-
 
 class XecGuardMissingCredentials(Exception):
     pass
@@ -103,7 +90,7 @@ class XecGuardGuardrail(CustomGuardrail):
         policy_names: list[str] | None = None,
         block_on_error: bool | None = None,
         grounding_strictness: str | None = None,
-        **kwargs: Unpack[_CustomGuardrailOptions],
+        **kwargs: Any,
     ) -> None:
         self.api_key = api_key or os.environ.get("XECGUARD_API_KEY")
         if not self.api_key:
@@ -135,12 +122,9 @@ class XecGuardGuardrail(CustomGuardrail):
             llm_provider=httpxSpecialProvider.GuardrailCallback,
         )
 
-        forwarded: Final[_CustomGuardrailOptions] = {
-            "supported_event_hooks": list(self.get_supported_event_hooks()),
-            **kwargs,
-        }
+        kwargs.setdefault("supported_event_hooks", list(self.get_supported_event_hooks()))
 
-        super().__init__(**forwarded)
+        super().__init__(**kwargs)
 
     @staticmethod
     def get_config_model() -> type["GuardrailConfigModel"] | None:
@@ -212,9 +196,9 @@ class XecGuardGuardrail(CustomGuardrail):
     async def async_logging_hook(
         self,
         kwargs: dict,
-        result: object,
+        result: Any,
         call_type: str,
-    ) -> tuple[dict, object]:
+    ) -> tuple[dict, Any]:
         """Observe-only scan for logging_only mode.
 
         Never blocks, never raises - all errors are swallowed. Records a
@@ -291,9 +275,9 @@ class XecGuardGuardrail(CustomGuardrail):
     def logging_hook(
         self,
         kwargs: dict,
-        result: object,
+        result: Any,
         call_type: str,
-    ) -> tuple[dict, object]:
+    ) -> tuple[dict, Any]:
         """Sync counterpart to ``async_logging_hook``.
 
         Runs the async version on an available loop, swallowing every
@@ -361,7 +345,7 @@ class XecGuardGuardrail(CustomGuardrail):
         path: str,
         payload: dict,
         suppress_errors: bool = False,
-    ) -> dict[str, object] | None:
+    ) -> dict | None:
         endpoint: Final = f"{self.api_base}{path}"
         verbose_proxy_logger.debug(
             "XecGuard: POST %s payload_keys=%s",
@@ -376,10 +360,10 @@ class XecGuardGuardrail(CustomGuardrail):
                     "Content-Type": "application/json",
                 },
                 json=payload,
-                timeout=self.timeout if self.timeout is not None else 10.0,
+                timeout=10.0,
             )
             response.raise_for_status()
-            return _RESPONSE_BODY.validate_python(response.json(), strict=True)
+            return response.json()
         except Exception as exc:
             verbose_proxy_logger.error("XecGuard API error: %s", str(exc))
             if suppress_errors:
@@ -449,7 +433,7 @@ class XecGuardGuardrail(CustomGuardrail):
         return {"role": role, "content": ""}
 
     @staticmethod
-    def _synthesize_user_from_inputs(inputs: object) -> dict | None:
+    def _synthesize_user_from_inputs(inputs: Any) -> dict | None:
         if not isinstance(inputs, dict):
             return None
         texts: Final = inputs.get("texts")
@@ -471,19 +455,18 @@ class XecGuardGuardrail(CustomGuardrail):
         return None
 
     @staticmethod
-    def _extract_assistant_text_from_response(response: object) -> str | None:
+    def _extract_assistant_text_from_response(response: Any) -> str | None:
         if response is None:
             return None
-        response_fields: Final = _dict_fields(response)
-        choices: object = None
+        choices = None
         if hasattr(response, "choices"):
-            choices = attribute_or_none(response, "choices")
-        elif response_fields is not None:
-            choices = response_fields.get("choices")
+            choices = response.choices
+        elif isinstance(response, dict):
+            choices = response.get("choices")
         if not choices:
             return None
         text_parts: Final[list[str]] = []
-        for choice in iter_items(choices):
+        for choice in choices:
             content = XecGuardGuardrail._extract_choice_content(choice)
             text = XecGuardGuardrail._content_to_text(content)
             if text:
@@ -491,26 +474,23 @@ class XecGuardGuardrail(CustomGuardrail):
         return "\n".join(text_parts) or None
 
     @staticmethod
-    def _extract_choice_content(choice: object) -> object:
-        choice_fields: Final = _dict_fields(choice)
-        message: object
+    def _extract_choice_content(choice: Any) -> Any:
         if hasattr(choice, "message"):
-            message = attribute_or_none(choice, "message")
-        elif choice_fields is not None:
-            message = choice_fields.get("message")
+            message = choice.message
+        elif isinstance(choice, dict):
+            message = choice.get("message")
         else:
             return None
         if message is None:
             return None
-        message_fields: Final = _dict_fields(message)
         if hasattr(message, "content"):
-            return attribute_or_none(message, "content")
-        if message_fields is not None:
-            return message_fields.get("content")
+            return message.content
+        if isinstance(message, dict):
+            return message.get("content")
         return None
 
     @staticmethod
-    def _content_to_text(content: object) -> str | None:
+    def _content_to_text(content: Any) -> str | None:
         if isinstance(content, str) and content:
             return content
         if isinstance(content, list):

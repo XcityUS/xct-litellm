@@ -2,17 +2,17 @@
 Types and field definitions for cache settings management endpoints
 """
 
-from typing import Final
+from typing import Any, Final
 
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel
 
 
-class CacheSettingsField(LiteLLMBaseModel):
+class CacheSettingsField(BaseModel):
     field_name: str
     field_type: str
-    field_value: object
+    field_value: Any
     field_description: str
-    field_default: object = None
+    field_default: Any = None
     options: list[str] | None = None  # For fields with predefined options/enum values
     ui_field_name: str  # User-friendly display name
     link: str | None = None  # Documentation link for the field

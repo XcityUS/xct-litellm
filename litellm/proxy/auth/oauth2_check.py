@@ -3,7 +3,6 @@ import os
 from typing import Final, cast
 
 import httpx
-from pydantic import ConfigDict, TypeAdapter
 
 from litellm._logging import verbose_proxy_logger
 from litellm.llms.custom_httpx.http_handler import (
@@ -11,13 +10,6 @@ from litellm.llms.custom_httpx.http_handler import (
     httpxSpecialProvider,
 )
 from litellm.proxy._types import CommonProxyErrors, LitellmUserRoles, UserAPIKeyAuth
-
-_TOKEN_INFO_RESPONSE: Final = TypeAdapter(dict[str, object], config=ConfigDict(strict=True, hide_input_in_errors=True))
-
-
-class OAuth2TokenValidationError(ValueError):
-    """The token-info or introspection endpoint did not vouch for the token: it rejected it, reported it
-    inactive, or could not be reached."""
 
 
 class Oauth2Handler:
@@ -187,7 +179,7 @@ class Oauth2Handler:
             response.raise_for_status()
 
             # If we get here, the request was successful
-            data = _TOKEN_INFO_RESPONSE.validate_python(response.json())
+            data = response.json()
 
             verbose_proxy_logger.debug(
                 "Oauth2 token validation for token=%s, response from endpoint=%s",
@@ -215,7 +207,7 @@ class Oauth2Handler:
             )
         except httpx.HTTPStatusError as e:
             # This will catch any 4xx or 5xx errors
-            raise OAuth2TokenValidationError(f"Oauth 2.0 Token validation failed: {e}")
+            raise ValueError(f"Oauth 2.0 Token validation failed: {e}")
         except Exception as e:
             # This will catch any other errors (like network issues)
-            raise OAuth2TokenValidationError(f"An error occurred during token validation: {e}")
+            raise ValueError(f"An error occurred during token validation: {e}")

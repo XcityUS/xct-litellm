@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import timezone
-from typing import Final
+from typing import Any, Final
 
 from litellm._logging import verbose_logger
 from litellm.integrations.gcs_bucket.gcs_bucket_base import GCSBucketBase
@@ -22,14 +21,14 @@ class FocusGCSDestination(GCSBucketBase, FocusDestination):
         self,
         *,
         prefix: str,
-        config: Mapping[str, str] | None = None,
+        config: dict[str, Any] | None = None,
     ) -> None:
-        resolved_config: Final[Mapping[str, str]] = config or {}
-        bucket_name: Final = resolved_config.get("bucket_name")
+        config = config or {}
+        bucket_name: Final = config.get("bucket_name")
         if not bucket_name:
             raise ValueError("bucket_name must be provided for GCS destination")
         super().__init__(bucket_name=bucket_name)
-        service_account_json: Final = resolved_config.get("service_account_json")
+        service_account_json: Final = config.get("service_account_json")
         if service_account_json is not None:
             self.path_service_account_json = service_account_json
         self.prefix = prefix.rstrip("/")

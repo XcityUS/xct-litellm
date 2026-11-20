@@ -22,13 +22,11 @@ from litellm.llms.custom_httpx.http_handler import (
 )
 from litellm.llms.vertex_ai.common_utils import get_vertex_base_url
 from litellm.llms.vertex_ai.vertex_llm_base import VertexBase
-from litellm.rag.ingestion.base_ingestion import BaseRAGIngestion, RAGIngestBadRequestError
+from litellm.rag.ingestion.base_ingestion import BaseRAGIngestion
 
 if TYPE_CHECKING:
     from litellm import Router
     from litellm.types.rag import RAGIngestOptions
-
-DEFAULT_VERTEX_RAG_LOCATION: Final = "us-central1"
 
 
 def _present_fields(fields: tuple[tuple[str, object], ...]) -> Mapping[str, object]:
@@ -92,7 +90,7 @@ class VertexAIRAGIngestion(BaseRAGIngestion, VertexBase):
 
         # Get project, location, and credentials using VertexBase methods
         self.project_id = self.safe_get_vertex_ai_project(litellm_params)
-        self.location = self.get_vertex_ai_location(litellm_params) or DEFAULT_VERTEX_RAG_LOCATION
+        self.location = self.get_vertex_ai_location(litellm_params) or "us-central1"
         self.vertex_credentials = self.safe_get_vertex_ai_credentials(litellm_params)
 
     async def embed(
@@ -136,9 +134,7 @@ class VertexAIRAGIngestion(BaseRAGIngestion, VertexBase):
             Tuple of (rag_corpus_id, file_id)
         """
         if not self.project_id:
-            raise RAGIngestBadRequestError(
-                "vertex_project is required for Vertex AI RAG ingestion. Set it in vector_store config."
-            )
+            raise ValueError("vertex_project is required for Vertex AI RAG ingestion. Set it in vector_store config.")
 
         # Get or create RAG corpus
         rag_corpus_id = self.vector_store_config.get("vector_store_id")

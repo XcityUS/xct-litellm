@@ -18,7 +18,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, ClassVar, Final, TypedDict
+from typing import TYPE_CHECKING, Any, Final, TypedDict
 
 import litellm
 from litellm._logging import verbose_logger
@@ -29,19 +29,11 @@ from litellm.constants import (
 )
 from litellm.litellm_core_utils.safe_json_dumps import safe_dumps
 from litellm.llms.bedrock.base_aws_llm import BaseAWSLLM
-from litellm.llms.bedrock.web_identity_session_policy import (
-    S3_VECTORS_INGESTION_SESSION_POLICY,
-    WebIdentitySessionPolicy,
-)
 from litellm.llms.custom_httpx.http_handler import (
     get_async_httpx_client,
     httpxSpecialProvider,
 )
-from litellm.llms.s3_vectors.vector_stores.transformation import (
-    s3_vectors_ingest_embedding_options,
-    s3_vectors_ingest_target,
-)
-from litellm.rag.ingestion.base_ingestion import BaseRAGIngestion, RAGIngestBadRequestError
+from litellm.rag.ingestion.base_ingestion import BaseRAGIngestion
 
 if TYPE_CHECKING:
     import httpx
@@ -81,15 +73,12 @@ class S3VectorsRAGIngestion(BaseRAGIngestion, BaseAWSLLM):
     4. Store vectors with PutVectors API
 
     Configuration:
-    - vector_store_id: "bucket_name:index_name" of an existing index, or an index name when vector_bucket_name is set
-    - vector_bucket_name: S3 vector bucket name (required unless vector_store_id carries it)
-    - index_name: Vector index name (auto-creates if neither it nor vector_store_id is provided)
+    - vector_bucket_name: S3 vector bucket name (required)
+    - index_name: Vector index name (auto-creates if not provided)
     - dimension: Vector dimension (default: S3_VECTORS_DEFAULT_DIMENSION)
     - distance_metric: "cosine" or "euclidean" (default: S3_VECTORS_DEFAULT_DISTANCE_METRIC)
     - non_filterable_metadata_keys: List of metadata keys to exclude from filtering
     """
-
-    _web_identity_session_policy: ClassVar[WebIdentitySessionPolicy] = S3_VECTORS_INGESTION_SESSION_POLICY
 
     def __init__(
         self,
@@ -99,8 +88,9 @@ class S3VectorsRAGIngestion(BaseRAGIngestion, BaseAWSLLM):
         BaseRAGIngestion.__init__(self, ingest_options=ingest_options, router=router)
         BaseAWSLLM.__init__(self)
 
-        self.vector_bucket_name, self.index_name = s3_vectors_ingest_target(self.vector_store_config)
-        self.embedding_config = s3_vectors_ingest_embedding_options(self.vector_store_config, self.embedding_config)
+        # Extract config
+        self.vector_bucket_name: str = self.vector_store_config["vector_bucket_name"]
+        self.index_name: str | None = self.vector_store_config.get("index_name")
         self.distance_metric: str = self.vector_store_config.get("distance_metric", S3_VECTORS_DEFAULT_DISTANCE_METRIC)
         self.non_filterable_metadata_keys: Sequence[str] = self.vector_store_config.get(
             "non_filterable_metadata_keys",
@@ -200,7 +190,7 @@ class S3VectorsRAGIngestion(BaseRAGIngestion, BaseAWSLLM):
         url: str,
         data: str | None = None,
         headers: dict[str, str] | None = None,
-    ) -> httpx.Response:
+    ) -> Any:
         """
         Helper to sign and execute AWS API requests using httpx + SigV4.
 
@@ -275,13 +265,13 @@ class S3VectorsRAGIngestion(BaseRAGIngestion, BaseAWSLLM):
 
         # Validate bucket name (AWS S3 naming rules)
         if len(self.vector_bucket_name) < 3:
-            raise RAGIngestBadRequestError(
+            raise ValueError(
                 f"Invalid vector_bucket_name '{self.vector_bucket_name}': "
                 f"AWS S3 bucket names must be at least 3 characters long. "
                 f"Please provide a valid bucket name (e.g., 'my-vector-bucket')."
             )
         if not self.vector_bucket_name.replace("-", "").replace(".", "").isalnum():
-            raise RAGIngestBadRequestError(
+            raise ValueError(
                 f"Invalid vector_bucket_name '{self.vector_bucket_name}': "
                 f"AWS S3 bucket names can only contain lowercase letters, numbers, hyphens, and periods. "
                 f"Please provide a valid bucket name (e.g., 'my-vector-bucket')."

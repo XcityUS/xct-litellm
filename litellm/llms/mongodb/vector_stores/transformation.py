@@ -6,10 +6,9 @@ from typing import TYPE_CHECKING, Final, Literal, NoReturn
 from urllib.parse import quote, urlsplit
 
 import httpx
-from pydantic import ConfigDict, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from litellm.exceptions import AuthenticationError, BadRequestError, ServiceUnavailableError, Timeout
-from litellm.litellm_core_utils.url_utils import join_api_base
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
 from litellm.llms.base_llm.vector_store.transformation import (
     BaseQueryEmbeddingVectorStoreConfig,
@@ -17,7 +16,6 @@ from litellm.llms.base_llm.vector_store.transformation import (
     VectorStoreEmbeddingExecutor,
 )
 from litellm.secret_managers.main import get_secret_str
-from litellm.types.llms.base import LiteLLMBaseModel
 from litellm.types.router import GenericLiteLLMParams
 from litellm.types.utils import EmbeddingResponse
 from litellm.types.vector_stores import (
@@ -51,13 +49,13 @@ def config_error(message: str) -> BadRequestError:
     return BadRequestError(message=message, model=None, llm_provider="mongodb")
 
 
-class _Content(LiteLLMBaseModel):
+class _Content(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
     type: Literal["text"]
     text: str
 
 
-class _Result(LiteLLMBaseModel):
+class _Result(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, allow_inf_nan=False)
     score: float | None
     content: Sequence[_Content]
@@ -65,14 +63,14 @@ class _Result(LiteLLMBaseModel):
     filename: str | None
 
 
-class _SearchResponse(LiteLLMBaseModel):
+class _SearchResponse(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
     object: Literal["vector_store.search_results.page"]
     search_query: str
     data: Sequence[_Result]
 
 
-class _MongoDBSearchParams(LiteLLMBaseModel):
+class _MongoDBSearchParams(BaseModel):
     """Typed view over the vector store's litellm_params; unrelated keys are ignored."""
 
     model_config = ConfigDict(frozen=True, extra="ignore")
@@ -135,7 +133,7 @@ class MongoDBVectorStoreConfig(BaseQueryEmbeddingVectorStoreConfig):
         return BaseVectorStoreAuthCredentials()
 
     def get_vector_store_endpoints_by_type(self) -> VectorStoreIndexEndpoints:
-        return VectorStoreIndexEndpoints(read=[], write=[])
+        return VectorStoreIndexEndpoints(read=[], write=[])  # mutable-ok: the TypedDict declares list fields
 
     @staticmethod
     def _reject_unknown_params(litellm_params: Mapping[str, object]) -> None:
@@ -199,7 +197,7 @@ class MongoDBVectorStoreConfig(BaseQueryEmbeddingVectorStoreConfig):
             **headers,
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
-        }
+        }  # mutable-ok: writable HTTP headers
 
     def get_complete_url(self, api_base: str | None, litellm_params: Mapping[str, object]) -> str:
         if not api_base:
@@ -284,8 +282,8 @@ class MongoDBVectorStoreConfig(BaseQueryEmbeddingVectorStoreConfig):
             raise config_error("The embedding model must return a non-empty, finite query vector.")
         limit: Final = cls._limit(optional_params)
         return (
-            join_api_base(api_base, f"v1/vector_stores/{quote(vector_store_id, safe='')}/search"),
-            {
+            f"{api_base}/v1/vector_stores/{quote(vector_store_id, safe='')}/search",
+            {  # mutable-ok: JSON transport requires a dict
                 "query": query_text,
                 "query_vector": tuple(vector),
                 "mongodb_database": params.require_database(),

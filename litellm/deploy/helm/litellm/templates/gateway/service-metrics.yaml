@@ -1,3 +1,0 @@
-{{- if and (include "litellm.gateway.render" .) .Values.gateway.metricsServer.enabled }}
-{{- include "litellm.workload.serviceMetrics" . }}
-{{- end }}

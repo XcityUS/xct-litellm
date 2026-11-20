@@ -4,7 +4,7 @@ import asyncio
 import contextvars
 from collections.abc import Coroutine, Mapping
 from functools import partial
-from typing import Final
+from typing import Any, Final
 
 import httpx
 
@@ -23,7 +23,7 @@ from litellm.types.vector_store_files import (
     VectorStoreFileObject,
     VectorStoreFileUpdateRequest,
 )
-from litellm.utils import ProviderConfigManager, client, load_credentials_from_list
+from litellm.utils import ProviderConfigManager, client
 from litellm.vector_store_files.utils import VectorStoreFileRequestUtils
 
 base_llm_http_handler = BaseLLMHTTPHandler()
@@ -49,7 +49,6 @@ def _prepare_registry_credentials(
             kwargs.update(registry_credentials)
     except Exception:
         pass
-    load_credentials_from_list(kwargs)
 
 
 @client
@@ -61,7 +60,7 @@ async def acreate(
     chunking_strategy: Mapping[str, object] | None = None,
     extra_headers: dict[str, str] | None = None,
     extra_query: Mapping[str, object] | None = None,
-    extra_body: dict[str, object] | None = None,
+    extra_body: dict[str, Any] | None = None,
     timeout: float | httpx.Timeout | None = None,
     custom_llm_provider: str | None = None,
     **kwargs,
@@ -113,7 +112,7 @@ def create(
     chunking_strategy: Mapping[str, object] | None = None,
     extra_headers: dict[str, str] | None = None,
     extra_query: Mapping[str, object] | None = None,
-    extra_body: dict[str, object] | None = None,
+    extra_body: dict[str, Any] | None = None,
     timeout: float | httpx.Timeout | None = None,
     custom_llm_provider: str | None = None,
     **kwargs,
@@ -189,7 +188,7 @@ async def alist(
     limit: int | None = None,
     order: str | None = None,
     extra_headers: dict[str, str] | None = None,
-    extra_query: dict[str, object] | None = None,
+    extra_query: dict[str, Any] | None = None,
     timeout: float | httpx.Timeout | None = None,
     custom_llm_provider: str | None = None,
     **kwargs,
@@ -242,7 +241,7 @@ def list(
     limit: int | None = None,
     order: str | None = None,
     extra_headers: dict[str, str] | None = None,
-    extra_query: dict[str, object] | None = None,
+    extra_query: dict[str, Any] | None = None,
     timeout: float | httpx.Timeout | None = None,
     custom_llm_provider: str | None = None,
     **kwargs,
@@ -528,7 +527,7 @@ async def aupdate(
     file_id: str,
     attributes: VectorStoreFileAttributes,
     extra_headers: dict[str, str] | None = None,
-    extra_body: dict[str, object] | None = None,
+    extra_body: dict[str, Any] | None = None,
     timeout: float | httpx.Timeout | None = None,
     custom_llm_provider: str | None = None,
     **kwargs,
@@ -574,7 +573,7 @@ def update(
     file_id: str,
     attributes: VectorStoreFileAttributes,
     extra_headers: dict[str, str] | None = None,
-    extra_body: dict[str, object] | None = None,
+    extra_body: dict[str, Any] | None = None,
     timeout: float | httpx.Timeout | None = None,
     custom_llm_provider: str | None = None,
     **kwargs,

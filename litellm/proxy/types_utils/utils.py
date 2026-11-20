@@ -5,12 +5,6 @@ import os
 from collections.abc import Callable
 from typing import Any, Final, Literal, get_type_hints
 
-from typing_extensions import ReadOnly, TypedDict
-
-
-class _AttributeView(TypedDict):
-    value: ReadOnly[object]
-
 
 def get_instance_fn(value: str, config_file_path: str | None = None) -> Any:
     module_name = value
@@ -58,8 +52,7 @@ def get_instance_fn(value: str, config_file_path: str | None = None) -> Any:
             module = importlib.import_module(module_name)
 
         # Get the instance from the module
-        attribute: Final[_AttributeView] = {"value": getattr(module, instance_name)}
-        instance: Final[object] = attribute["value"]
+        instance: Final = getattr(module, instance_name)
 
         return instance
     except ImportError as e:
@@ -72,7 +65,7 @@ def get_instance_fn(value: str, config_file_path: str | None = None) -> Any:
         raise e
 
 
-def _load_instance_from_remote_storage(remote_url: str, config_file_path: str | None = None) -> object:
+def _load_instance_from_remote_storage(remote_url: str, config_file_path: str | None = None) -> Any:
     """
     Load custom logger instance from S3 or GCS URL.
 
@@ -174,8 +167,7 @@ def _load_instance_from_remote_storage(remote_url: str, config_file_path: str | 
         spec.loader.exec_module(module)
 
         # Get the instance
-        attribute: Final[_AttributeView] = {"value": getattr(module, instance_name)}
-        instance: Final[object] = attribute["value"]
+        instance: Final = getattr(module, instance_name)
 
         # Clean up the temporary file
         try:
@@ -206,8 +198,8 @@ async def _download_gcs_file_wrapper(bucket_name: str, object_key: str, local_fi
 
 
 def validate_custom_validate_return_type(
-    fn: Callable[..., object] | None,
-) -> Callable[..., object] | None:
+    fn: Callable[..., Any] | None,
+) -> Callable[..., Literal[True]] | None:
     if fn is None:
         return None
 

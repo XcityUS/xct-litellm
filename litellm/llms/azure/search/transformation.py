@@ -33,24 +33,15 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Literal
 
 import httpx
-from pydantic import ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
-from litellm.litellm_core_utils.url_utils import ensure_api_route
-from litellm.llms.azure.common_utils import cached_azure_ad_token_refresh_provider, entra_rejection_as_auth_error
 from litellm.llms.base_llm.chat.transformation import BaseLLMException
-from litellm.llms.base_llm.search.responses import (
-    ResponsesSearchAnnotation,
-    ResponsesSearchEnvelope,
-    ResponsesSearchError,
-    responses_search_citations,
-)
 from litellm.llms.base_llm.search.transformation import (
     BaseSearchConfig,
     SearchResponse,
     SearchResult,
 )
 from litellm.secret_managers.main import get_secret_str
-from litellm.types.llms.base import LiteLLMBaseModel
 
 if TYPE_CHECKING:
     from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLoggingObj
@@ -70,10 +61,62 @@ _UPSTREAM_ERROR_STATUS: Final = 502
 _RESPONSE_COST_HEADER: Final = "llm_provider-x-litellm-response-cost"
 
 
-class _ErrorEnvelope(LiteLLMBaseModel):
+class _Annotation(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
-    error: ResponsesSearchError | None = None
+    type: str = ""
+    url: str | None = None
+    title: str | None = None
+    start_index: int | None = None
+    end_index: int | None = None
+
+
+class _ContentPart(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    type: str = ""
+    text: str = ""
+    annotations: tuple[_Annotation, ...] = ()
+
+
+class _OutputItem(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    type: str = ""
+    content: tuple[_ContentPart, ...] = ()
+
+
+class _ErrorBody(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    message: str | None = None
+
+
+class _IncompleteDetails(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    reason: str | None = None
+
+
+class _ResponsesEnvelope(BaseModel):
+    """A Foundry Responses API body. `output` is required: a body without it is not a
+    Responses API response and must not be reported as a successful empty search.
+
+    A 200 body can still carry `status` `failed` or `incomplete`; those are surfaced as
+    errors rather than reported as a successful empty search."""
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    output: tuple[_OutputItem, ...]
+    status: str | None = None
+    error: _ErrorBody | None = None
+    incomplete_details: _IncompleteDetails | None = None
+
+
+class _ErrorEnvelope(BaseModel):
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
+    error: _ErrorBody | None = None
 
 
 def _unwrap_error_detail(error_message: str) -> str:
@@ -92,13 +135,13 @@ def _unwrap_error_detail(error_message: str) -> str:
     if message is None:
         return error_message
     try:
-        nested: Final = ResponsesSearchError.model_validate_json(message)
+        nested: Final = _ErrorBody.model_validate_json(message)
     except ValidationError:
         return message
     return nested.message or message
 
 
-def _snippet(text: str, annotation: ResponsesSearchAnnotation) -> str:
+def _snippet(text: str, annotation: _Annotation) -> str:
     """
     The text a citation supports, not the citation marker itself.
 
@@ -114,7 +157,7 @@ def _snippet(text: str, annotation: ResponsesSearchAnnotation) -> str:
     return text[:_SNIPPET_FALLBACK_LENGTH]
 
 
-def _citation_results(envelope: ResponsesSearchEnvelope) -> tuple[SearchResult, ...]:
+def _citation_results(envelope: _ResponsesEnvelope) -> tuple[SearchResult, ...]:
     """One result per cited URL: first occurrence wins, order preserved as answered."""
     cited: Final = tuple(
         SearchResult(
@@ -124,7 +167,12 @@ def _citation_results(envelope: ResponsesSearchEnvelope) -> tuple[SearchResult, 
             date=None,
             last_updated=None,
         )
-        for part, annotation in responses_search_citations(envelope.output)
+        for item in envelope.output
+        if item.type == "message"
+        for part in item.content
+        if part.type == "output_text"
+        for annotation in part.annotations
+        if annotation.type == "url_citation" and annotation.url
     )
     first_by_url: Final = MappingProxyType({result.url: result for result in reversed(cited)})
     return tuple(first_by_url[url] for url in dict.fromkeys(result.url for result in cited))
@@ -157,41 +205,41 @@ def _capped(results: tuple[SearchResult, ...], max_results: int | None) -> tuple
     return results[:max_results] if max_results is not None else results
 
 
-class _SearchConfiguration(LiteLLMBaseModel):
+class _SearchConfiguration(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     project_connection_id: str
     count: int | None = None
 
 
-class _BingGroundingParams(LiteLLMBaseModel):
+class _BingGroundingParams(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     search_configurations: tuple[_SearchConfiguration, ...]
 
 
-class _BingGroundingTool(LiteLLMBaseModel):
+class _BingGroundingTool(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     type: Literal["bing_grounding"] = "bing_grounding"
     bing_grounding: _BingGroundingParams
 
 
-class _UserLocation(LiteLLMBaseModel):
+class _UserLocation(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     type: Literal["approximate"] = "approximate"
     country: str
 
 
-class _WebSearchTool(LiteLLMBaseModel):
+class _WebSearchTool(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     type: Literal["web_search"] = "web_search"
     user_location: _UserLocation | None = None
 
 
-class _ResponsesRequest(LiteLLMBaseModel):
+class _ResponsesRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     model: str
@@ -214,7 +262,9 @@ def _search_tool(optional_params: Mapping[str, object]) -> _BingGroundingTool | 
 
 
 def _default_entra_token_minter() -> str:
-    return cached_azure_ad_token_refresh_provider(ENTRA_SCOPE)()
+    from litellm.secret_managers.get_azure_ad_token_provider import get_azure_ad_token_provider
+
+    return get_azure_ad_token_provider(azure_scope=ENTRA_SCOPE)()
 
 
 class BingGroundingSearchConfig(BaseSearchConfig):
@@ -239,7 +289,7 @@ class BingGroundingSearchConfig(BaseSearchConfig):
         Returns a new dict rather than mutating ``headers``: the http handler calls this
         a second time after ``litellm/search/main.py`` already did, so it has to be idempotent.
         """
-        return {
+        return {  # mutable-ok: httpx requires a plain dict of headers
             **headers,
             **self._auth_header(api_key, api_base),
             "Content-Type": "application/json",
@@ -270,9 +320,6 @@ class BingGroundingSearchConfig(BaseSearchConfig):
         try:
             return minter()
         except Exception as e:
-            rejection: Final = entra_rejection_as_auth_error(e)
-            if rejection is not None:
-                raise rejection from e
             raise ValueError(
                 f"Grounding with Bing Search: no credential available. Pass api_key, set {TOKEN_ENV} "
                 f"to an Entra bearer token, or configure azure-identity (AZURE_CLIENT_ID / "
@@ -293,7 +340,10 @@ class BingGroundingSearchConfig(BaseSearchConfig):
                 f"{PROJECT_ENDPOINT_ENV} is not set. Set it to your Microsoft Foundry project "
                 f"endpoint, e.g. https://<account>.services.ai.azure.com/api/projects/<project>."
             )
-        return ensure_api_route(resolved_base, _RESPONSES_PATH)
+        trimmed: Final = resolved_base.rstrip("/")
+        if trimmed.endswith(_RESPONSES_PATH):
+            return trimmed
+        return f"{trimmed}{_RESPONSES_PATH}"
 
     def transform_search_request(
         self,
@@ -332,12 +382,12 @@ class BingGroundingSearchConfig(BaseSearchConfig):
         **kwargs: object,  # kwargs-ok: BaseSearchConfig.transform_search_response signature
     ) -> SearchResponse:
         try:
-            parsed: Final = ResponsesSearchEnvelope.model_validate_json(raw_response.content)
+            parsed: Final = _ResponsesEnvelope.model_validate_json(raw_response.content)
         except ValidationError as e:
             raise self.get_error_class(
                 error_message=f"response does not match the Foundry Responses API schema: {e}",
                 status_code=raw_response.status_code,
-                headers=dict(raw_response.headers),
+                headers=dict(raw_response.headers),  # mutable-ok: BaseSearchConfig.get_error_class signature
             )
         if parsed.status == "failed":
             detail: Final = (
@@ -358,7 +408,7 @@ class BingGroundingSearchConfig(BaseSearchConfig):
         return self.get_error_class(
             error_message=detail,
             status_code=_UPSTREAM_ERROR_STATUS,
-            headers=dict(raw_response.headers),
+            headers=dict(raw_response.headers),  # mutable-ok: BaseSearchConfig.get_error_class signature
         )
 
     def _priced(self, results: tuple[SearchResult, ...]) -> SearchResponse:
@@ -366,12 +416,16 @@ class BingGroundingSearchConfig(BaseSearchConfig):
         inherit the connection-mode ``bing_grounding/search`` price; zero its per-query
         cost while leaving connection mode to the cost map."""
         response: Final = SearchResponse(
-            results=list(results),
+            results=list(results),  # mutable-ok: SearchResponse.results is list[SearchResult]
             object="search",
         )
         if get_secret_str(CONNECTION_ID_ENV):
             return response
-        response.hidden_params["additional_headers"] = {_RESPONSE_COST_HEADER: 0.0}
+        response._hidden_params[
+            "additional_headers"
+        ] = {  # mutable-ok: response_cost_calculator writes into _hidden_params
+            _RESPONSE_COST_HEADER: 0.0
+        }
         return response
 
     def get_error_class(

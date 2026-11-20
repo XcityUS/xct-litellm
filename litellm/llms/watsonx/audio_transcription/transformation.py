@@ -4,15 +4,12 @@ Translates from OpenAI's `/v1/audio/transcriptions` to IBM WatsonX's `/ml/v1/aud
 WatsonX follows the OpenAI spec for audio transcription.
 """
 
-from collections.abc import Mapping
-from typing import Final
+from typing import Any, Final
 
 from httpx import Response
-from pydantic import ConfigDict, TypeAdapter
 
 import litellm
 from litellm.litellm_core_utils.audio_utils.utils import process_audio_file
-from litellm.litellm_core_utils.url_utils import join_api_base
 from litellm.types.llms.openai import (
     AllMessageValues,
     OpenAIAudioTranscriptionOptionalParams,
@@ -27,9 +24,6 @@ from ...openai.transcriptions.whisper_transformation import (
     OpenAIWhisperAudioTranscriptionConfig,
 )
 from ..common_utils import IBMWatsonXMixin
-
-_JSON_OBJECT: Final = TypeAdapter(Mapping[str, object], config=ConfigDict(hide_input_in_errors=True))
-_DECODED_JSON: Final = TypeAdapter(object)
 
 
 class IBMWatsonXAudioTranscriptionConfig(IBMWatsonXMixin, OpenAIWhisperAudioTranscriptionConfig):
@@ -130,7 +124,7 @@ class IBMWatsonXAudioTranscriptionConfig(IBMWatsonXMixin, OpenAIWhisperAudioTran
         }
 
         # Convert TypedDict to regular dict for AudioTranscriptionRequestData
-        form_data_dict: Final[dict[str, object]] = dict(form_data)
+        form_data_dict: Final[dict[str, Any]] = dict(form_data)
 
         return AudioTranscriptionRequestData(data=form_data_dict, files=files)
 
@@ -152,9 +146,10 @@ class IBMWatsonXAudioTranscriptionConfig(IBMWatsonXMixin, OpenAIWhisperAudioTran
         """
         # Get base URL
         url = self._get_base_url(api_base=api_base)
+        url = url.rstrip("/")
 
         # Add the audio transcription endpoint
-        url = join_api_base(url, "ml/v1/audio/transcriptions")
+        url = f"{url}/ml/v1/audio/transcriptions"
 
         # Add version parameter (only version in query string, not project_id)
         api_version: Final = optional_params.get("api_version", None) or litellm.WATSONX_DEFAULT_API_VERSION
@@ -173,15 +168,14 @@ class IBMWatsonXAudioTranscriptionConfig(IBMWatsonXMixin, OpenAIWhisperAudioTran
         removed before creating the TranscriptionResponse object.
         """
         try:
-            raw_response_json: Final = _DECODED_JSON.validate_python(raw_response.json())
+            raw_response_json: Final = raw_response.json()
         except Exception as e:
-            raise ValueError(f"Error transforming response to json: {e}")
+            raise ValueError(f"Error transforming response to json: {e}\nResponse: {raw_response.text}")
 
         # Extract only valid fields for TranscriptionResponse.__init__()
         # TranscriptionResponse only accepts 'text' and 'usage' in __init__()
-        response_object: Final = _JSON_OBJECT.validate_python(raw_response_json)
-        text: Final = response_object.get("text")
-        usage: Final = response_object.get("usage")
+        text: Final = raw_response_json.get("text")
+        usage: Final = raw_response_json.get("usage")
 
         # Create response with only valid fields
         response_kwargs: Final = {}
@@ -191,13 +185,16 @@ class IBMWatsonXAudioTranscriptionConfig(IBMWatsonXMixin, OpenAIWhisperAudioTran
             response_kwargs["usage"] = usage
 
         if not response_kwargs:
-            raise ValueError("Invalid response format. Received response does not match the expected format.")
+            raise ValueError(
+                "Invalid response format. Received response does not match the expected format. Got: ",
+                raw_response_json,
+            )
 
         response: Final = TranscriptionResponse(**response_kwargs)
 
         # Add other fields using dictionary-style assignment (like duration, task, etc.)
         # Skip fields that TranscriptionResponse doesn't accept in __init__()
-        for key, value in response_object.items():
+        for key, value in raw_response_json.items():
             if key not in [
                 "text",
                 "usage",

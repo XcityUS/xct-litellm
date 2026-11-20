@@ -1,18 +1,14 @@
 """
 Handles Batching + sending Httpx Post requests to slack
 
-Slack alerts are sent every DEFAULT_FLUSH_INTERVAL_SECONDS or when events are greater than X events
+Slack alerts are sent every 10s or when events are greater than X events
 
 see custom_batch_logger.py for more details / defaults
 """
 
-from collections import Counter
-from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final
 
 from litellm._logging import verbose_proxy_logger
-from litellm.types.integrations.slack_alerting import AlertQueueItem, AlertType
 
 from .ms_teams import MS_TEAMS_ALERTING_DESTINATION, build_ms_teams_payload
 
@@ -24,20 +20,26 @@ else:
     SlackAlertingType = Any
 
 
-@dataclass(frozen=True, slots=True)
-class SquashedAlert:
-    item: AlertQueueItem
-    count: int
+def squash_payloads(queue):
+    squashed: Final = {}
+    if len(queue) == 0:
+        return squashed
+    if len(queue) == 1:
+        return {"key": {"item": queue[0], "count": 1}}
 
+    for item in queue:
+        url = item["url"]
+        alert_type = item["alert_type"]
+        _key = (url, alert_type)
 
-def _squash_key(item: AlertQueueItem) -> tuple[str, AlertType | str, str]:
-    return (item["url"], item["alert_type"], item["payload"]["text"])
+        if _key in squashed:
+            squashed[_key]["count"] += 1
+            # Merge the payloads
 
+        else:
+            squashed[_key] = {"item": item, "count": 1}
 
-def squash_payloads(queue: Sequence[AlertQueueItem]) -> tuple[SquashedAlert, ...]:
-    counts: Final = Counter(_squash_key(item) for item in queue)
-    first_item_by_key: Final = {_squash_key(item): item for item in reversed(queue)}
-    return tuple(SquashedAlert(item=first_item_by_key[key], count=count) for key, count in counts.items())
+    return squashed
 
 
 def _print_alerting_payload_warning(payload: dict, slackAlertingInstance: SlackAlertingType):
@@ -51,15 +53,17 @@ def _print_alerting_payload_warning(payload: dict, slackAlertingInstance: SlackA
         verbose_proxy_logger.warning(payload)
 
 
-async def send_to_webhook(slackAlertingInstance: SlackAlertingType, item: AlertQueueItem, count: int) -> None:
+async def send_to_webhook(slackAlertingInstance: SlackAlertingType, item, count):
     """
     Send a single slack alert to the webhook
     """
     import json
 
-    text: Final = item["payload"]["text"]
-    payload: Final = {"text": text if count == 1 else f"[Num Alerts: {count}]\n\n{text}"}
+    payload: Final = item.get("payload", {})
     try:
+        if count > 1:
+            payload["text"] = f"[Num Alerts: {count}]\n\n{payload['text']}"
+
         request_body: Final = (
             build_ms_teams_payload(payload["text"]) if item.get("format") == MS_TEAMS_ALERTING_DESTINATION else payload
         )

@@ -9,7 +9,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from litellm._logging import verbose_logger
 from litellm.integrations.otel.model.config import (
-    CaptureMessageContent,
     ExporterOwner,
     ExporterSpec,
     OpenTelemetryV2Config,
@@ -67,11 +66,7 @@ def newrelic_preset(
             # New Relic ingests the OTLP GenAI semantic conventions natively.
             "mapper_names": ensure_mappers(base.mapper_names, "genai"),
             **(
-                {
-                    "capture_message_content": (
-                        CaptureMessageContent.SPAN_ONLY if settings.record_content else CaptureMessageContent.NO_CONTENT
-                    )
-                }
+                {"capture_message_content": ("span_only" if settings.record_content else "no_content")}
                 if settings.record_content is not None
                 else {}
             ),

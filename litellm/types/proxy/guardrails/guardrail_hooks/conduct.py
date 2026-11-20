@@ -2,14 +2,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, Field
 
 from .base import GuardrailConfigModel
 
 
-class ConductGuardrailConfigModelOptionalParams(LiteLLMBaseModel):
+class ConductGuardrailConfigModelOptionalParams(BaseModel):
     workspace_id: str | None = Field(
         default=None,
         description="Conduct workspace id, sent as the X-Workspace-Id header. Env: CONDUCT_WORKSPACE_ID.",

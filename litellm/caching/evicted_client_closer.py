@@ -29,9 +29,6 @@ it does not belong to. Queued clients are therefore bucketed by what it takes to
 close them, and each bucket is ordered by deadline, so a reap walks the entries
 that are due rather than the whole queue.
 
-A bucket whose loop has been collected is dropped, and its clients are left to the
-collector, as they are when the queue is full.
-
 The queue holds its clients weakly, so waiting out a grace window never keeps
 alive anything the collector would have reclaimed first.
 """
@@ -39,7 +36,6 @@ alive anything the collector would have reclaimed first.
 import asyncio
 import contextlib
 import inspect
-import itertools
 import threading
 import time
 import weakref
@@ -47,8 +43,6 @@ from collections import deque
 from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass, replace
 from typing import Final
-
-import httpx
 
 from litellm.constants import (
     EVICTED_LLM_CLIENT_CLOSE_GRACE_SECONDS,
@@ -59,9 +53,6 @@ _CLOSABLE_ANYWHERE: Final = "closable-anywhere"
 _CLOSABLE_ON_ANY_LOOP: Final = "closable-on-any-loop"
 
 _BucketKey = str | int
-_LOOP_TOKENS: Final[weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, int]] = weakref.WeakKeyDictionary()
-_LOOP_TOKEN_COUNTER: Final = itertools.count()
-_LOOP_TOKEN_LOCK: Final = threading.Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,12 +63,12 @@ class _PendingClose:
     collector would otherwise have reclaimed first.
 
     ``needs_loop`` is set for a client whose close is a coroutine; those can only
-    be closed from the event loop they were evicted on, recorded in ``loop_token``.
+    be closed from the event loop they were evicted on, recorded in ``loop_id``.
     A client that closes synchronously carries neither constraint.
     """
 
     client_ref: "weakref.ref[object]"
-    loop_token: int | None
+    loop_id: int | None
     needs_loop: bool
     close_after: float
 
@@ -86,24 +77,16 @@ def _bucket_key(pending: _PendingClose) -> _BucketKey:
     """Which reaps can close this entry: any at all, any running a loop, or one loop's."""
     if not pending.needs_loop:
         return _CLOSABLE_ANYWHERE
-    if pending.loop_token is None:
+    if pending.loop_id is None:
         return _CLOSABLE_ON_ANY_LOOP
-    return pending.loop_token
+    return pending.loop_id
 
 
-def running_loop_token() -> int | None:
+def _running_loop_id() -> int | None:
     try:
-        loop: Final = asyncio.get_running_loop()
+        return id(asyncio.get_running_loop())
     except RuntimeError:
         return None
-    try:
-        token: Final[int | None] = _LOOP_TOKENS.get(loop)
-        if token is not None:
-            return token
-        with _LOOP_TOKEN_LOCK:
-            return _LOOP_TOKENS.setdefault(loop, next(_LOOP_TOKEN_COUNTER))
-    except TypeError:
-        return id(loop)
 
 
 def _close_function(client: object) -> Callable[[], object] | None:
@@ -111,24 +94,13 @@ def _close_function(client: object) -> Callable[[], object] | None:
     return close_fn
 
 
-def _mounted_transports(holder: object) -> tuple[object, ...]:
-    mounts: Final[object] = getattr(holder, "_mounts", None)
-    if not isinstance(mounts, dict):
-        return ()
-    return tuple(
-        mounted
-        for mounted in mounts.values()  # pyright: ignore[reportUnknownVariableType]  # untyped httpx mount map
-        if isinstance(mounted, (httpx.AsyncBaseTransport, httpx.BaseTransport))
-    )
-
-
-def _transports_of(client: object) -> tuple[object, ...]:
-    """The httpx transports behind an SDK wrapper, a litellm handler, or a bare client, proxy mounts included."""
+def _transport_of(client: object) -> object:
+    """The httpx transport behind an SDK wrapper, a litellm handler, or a bare client."""
     for holder in (getattr(client, "_client", None), getattr(client, "client", None), client):
         transport: object = getattr(holder, "_transport", None)
         if transport is not None:
-            return (transport, *_mounted_transports(holder))
-    return ()
+            return transport
+    return None
 
 
 def _connection_is_idle(connection: object) -> bool:
@@ -151,17 +123,6 @@ def _pool_has_busy_connection(transport: object) -> bool | None:
     )
 
 
-def _transport_in_flight(transport: object) -> bool:
-    spread_in_flight: Final[object] = getattr(transport, "has_request_in_flight", None)
-    if callable(spread_in_flight):
-        return bool(spread_in_flight())
-    pooled_busy: Final = _pool_has_busy_connection(transport)
-    if pooled_busy is not None:
-        return pooled_busy
-    session: Final[object] = getattr(transport, "client", None)
-    return bool(getattr(getattr(session, "connector", None), "_acquired", None))
-
-
 def _has_connection_in_flight(client: object) -> bool:
     """Whether the client is servicing a request right now.
 
@@ -175,9 +136,12 @@ def _has_connection_in_flight(client: object) -> bool:
     window as the only guard, exactly as it was before this check existed.
     """
     try:
-        if getattr(getattr(client, "connection_pool", None), "_in_use_connections", None):
-            return True
-        return any(_transport_in_flight(transport) for transport in _transports_of(client))
+        transport: Final = _transport_of(client)
+        pooled_busy: Final = _pool_has_busy_connection(transport)
+        if pooled_busy is not None:
+            return pooled_busy
+        session: Final[object] = getattr(transport, "client", None)
+        return bool(getattr(getattr(session, "connector", None), "_acquired", None))
     except Exception:  # noqa: BLE001 - a client that cannot report its state is treated as idle
         return False
 
@@ -201,8 +165,6 @@ class EvictedClientCloser:
         self._clock = clock
         self._owned: weakref.WeakSet[object] = weakref.WeakSet()
         self._buckets: dict[_BucketKey, deque[_PendingClose]] = {}  # mutable-ok: deadline-ordered queues
-        self._dead_loop_tokens: deque[int] = deque()  # mutable-ok: loop finalizers append without taking the queue lock
-        self._watched_loop_tokens: set[int] = set()  # mutable-ok: tracks tokens until their dead buckets are discarded
         self._pending_count = 0
         self._queue_lock = threading.Lock()  # the cache is reachable from every worker thread's loop
         self._close_tasks: set[asyncio.Task[None]] = set()  # mutable-ok: strong refs to running closes
@@ -233,19 +195,13 @@ class EvictedClientCloser:
         close_fn: Final = _close_function(client)
         if close_fn is None:
             return
-        loop_token: Final = running_loop_token()
-        needs_loop: Final = inspect.iscoroutinefunction(close_fn)
         if self._pending_count >= self._max_pending:
-            self._discard_dead_loops()
-            if self._pending_count >= self._max_pending:
-                return
-        if needs_loop and loop_token is not None:
-            self._watch_loop(loop_token)
+            return
         self._enqueue(
             _PendingClose(
                 client_ref=weakref.ref(client),
-                loop_token=loop_token,
-                needs_loop=needs_loop,
+                loop_id=_running_loop_id(),
+                needs_loop=inspect.iscoroutinefunction(close_fn),
                 close_after=self._clock() + self._grace_seconds,
             )
         )
@@ -259,7 +215,7 @@ class EvictedClientCloser:
         if not self._pending_count:
             return
         now: Final = self._clock()
-        for pending in self._take_due(running_loop_token(), now):
+        for pending in self._take_due(_running_loop_id(), now):
             client = pending.client_ref()
             if client is None:
                 continue
@@ -272,29 +228,6 @@ class EvictedClientCloser:
     def pending_count(self) -> int:
         return self._pending_count
 
-    def _watch_loop(self, loop_token: int) -> None:
-        if loop_token in self._watched_loop_tokens:
-            return
-        try:
-            weakref.finalize(asyncio.get_running_loop(), self._dead_loop_tokens.append, loop_token)
-        except TypeError:
-            return
-        self._watched_loop_tokens.add(loop_token)
-
-    def _discard_dead_loops(self) -> None:
-        with self._queue_lock:
-            self._discard_dead_loops_locked()
-
-    def _discard_dead_loops_locked(self) -> None:
-        while self._dead_loop_tokens:
-            self._discard_dead_loop_token_locked(self._dead_loop_tokens.popleft())
-
-    def _discard_dead_loop_token_locked(self, loop_token: int) -> None:
-        self._watched_loop_tokens.discard(loop_token)
-        bucket: Final = self._buckets.pop(loop_token, None)
-        if bucket is not None:
-            self._pending_count -= len(bucket)
-
     def _enqueue(self, pending: _PendingClose) -> None:
         """Append to the entry's bucket, dropping any dead entries it queues behind.
 
@@ -303,20 +236,16 @@ class EvictedClientCloser:
         the front rather than having to be searched for.
         """
         with self._queue_lock:
-            self._discard_dead_loops_locked()
-            bucket: Final = self._buckets.setdefault(_bucket_key(pending), deque())
+            bucket: Final = self._buckets.setdefault(_bucket_key(pending), deque())  # mutable-ok: FIFO by design
             while bucket and bucket[0].client_ref() is None:
                 bucket.popleft()
                 self._pending_count -= 1
             bucket.append(pending)
             self._pending_count += 1
 
-    def _take_due(self, loop_token: int | None, now: float) -> tuple[_PendingClose, ...]:
-        buckets = (
-            (_CLOSABLE_ANYWHERE,) if loop_token is None else (_CLOSABLE_ANYWHERE, _CLOSABLE_ON_ANY_LOOP, loop_token)
-        )
+    def _take_due(self, loop_id: int | None, now: float) -> tuple[_PendingClose, ...]:
+        buckets = (_CLOSABLE_ANYWHERE,) if loop_id is None else (_CLOSABLE_ANYWHERE, _CLOSABLE_ON_ANY_LOOP, loop_id)
         with self._queue_lock:
-            self._discard_dead_loops_locked()
             return tuple(pending for key in buckets for pending in self._drain_locked(key, now))
 
     def _drain_locked(self, key: _BucketKey, now: float) -> Iterator[_PendingClose]:

@@ -2,9 +2,8 @@ from collections.abc import Sequence
 from enum import Enum
 from typing import Any, Final, Literal, Optional, Union
 
-from typing_extensions import ReadOnly, TypedDict
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel
+from typing_extensions import TypedDict
 
 
 class LiteLLMCacheType(str, Enum):
@@ -13,6 +12,7 @@ class LiteLLMCacheType(str, Enum):
     REDIS_SEMANTIC = "redis-semantic"
     VALKEY_SEMANTIC = "valkey-semantic"
     S3 = "s3"
+    DISK = "disk"
     QDRANT_SEMANTIC = "qdrant-semantic"
     AZURE_BLOB = "azure-blob"
     GCS = "gcs"
@@ -74,7 +74,7 @@ class RedisPipelineSetOperation(TypedDict):
     """
 
     key: str
-    value: object
+    value: Any
     ttl: int | None
 
 
@@ -114,7 +114,7 @@ DynamicCacheControl = TypedDict(
 )
 
 
-class CachePingResponse(LiteLLMBaseModel):
+class CachePingResponse(BaseModel):
     status: str
     cache_type: str
     ping_response: bool | None = None
@@ -125,30 +125,24 @@ class CachePingResponse(LiteLLMBaseModel):
     health_check_cache_params: dict | None = None
 
 
-class HealthCheckCacheParams(LiteLLMBaseModel):
+class HealthCheckCacheParams(BaseModel):
     """
     Cache Params returned on /cache/ping call
     """
 
     host: str | None = None
     port: str | int | None = None
-    redis_kwargs: dict[str, object] | None = None
+    redis_kwargs: dict[str, Any] | None = None
     namespace: str | None = None
     redis_version: str | int | float | None = None
-
-
-EMBEDDING_CACHE_FORMAT_VERSION: Final = 2
-
-CACHED_STREAM_EVENTS_KEY: Final = "litellm_cached_anthropic_sse_events"
 
 
 class CachedEmbedding(TypedDict):
     """Type definition for cached embedding objects"""
 
-    embedding: ReadOnly[list[float] | str | None]
-    index: ReadOnly[int | None]
-    object: ReadOnly[str | None]
-    model: ReadOnly[str | None]
-    prompt_tokens: ReadOnly[int | None]
-    prompt_tokens_details: ReadOnly[dict | None]
-    format_version: ReadOnly[int]
+    embedding: list[float] | None
+    index: int | None
+    object: str | None
+    model: str | None
+    prompt_tokens: int | None
+    prompt_tokens_details: dict | None

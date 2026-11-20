@@ -1,9 +1,7 @@
-from pydantic import field_validator
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, field_validator
 
 
-class WorkerRegistryEntry(LiteLLMBaseModel):
+class WorkerRegistryEntry(BaseModel):
     worker_id: str
     name: str
     url: str

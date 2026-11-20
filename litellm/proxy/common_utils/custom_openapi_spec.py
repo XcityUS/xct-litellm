@@ -1,8 +1,5 @@
 from collections.abc import Mapping, Sequence
-from types import MappingProxyType
-from typing import Final, TypeAlias, Union, cast
-
-from pydantic import TypeAdapter
+from typing import Final, TypeAlias, Union
 
 from litellm._logging import verbose_proxy_logger
 
@@ -31,7 +28,7 @@ class CustomOpenAPISpec:
         "/openai/deployments/{model}/embeddings",
     ]
 
-    RESPONSES_API_PATHS = ["/v1/responses", "/responses", "/openai/v1/responses"]
+    RESPONSES_API_PATHS = ["/v1/responses", "/responses"]
 
     @staticmethod
     def _as_object(node: JsonValue) -> JsonObject:
@@ -47,18 +44,26 @@ class CustomOpenAPISpec:
         return CustomOpenAPISpec._as_object(components.setdefault("schemas", {}))
 
     @staticmethod
-    def get_pydantic_schema(model_class: type) -> JsonObject | None:
+    def get_pydantic_schema(model_class) -> JsonObject | None:
         """
-        Get JSON schema for a request or response model class, including TypedDicts.
+        Get JSON schema from a Pydantic model, handling both v1 and v2 APIs.
 
         Args:
-            model_class: Pydantic model class or TypedDict
+            model_class: Pydantic model class
 
         Returns:
             JSON schema dict or None if failed
         """
         try:
-            return cast(JsonObject, TypeAdapter(model_class).json_schema())  # cast-ok: pydantic returns dict[str, Any]
+            # Try Pydantic v2 method first
+            return model_class.model_json_schema()
+        except AttributeError:
+            try:
+                # Fallback to Pydantic v1 method
+                return model_class.schema()
+            except AttributeError:
+                # If both methods fail, return None
+                return None
         except Exception as e:
             # FastAPI 0.120+ may fail schema generation for certain types (e.g., openai.Timeout)
             # Log the error and return None to skip schema generation for this model
@@ -78,18 +83,13 @@ class CustomOpenAPISpec:
         # Ensure components/schemas structure exists
         _ = CustomOpenAPISpec._components_schemas(openapi_schema)
 
-        defs: Final[Mapping[str, JsonValue]] = (
-            CustomOpenAPISpec._as_object(schema_def["$defs"]) if "$defs" in schema_def else MappingProxyType({})
-        )
-        renames: Final = CustomOpenAPISpec._move_defs_to_components(openapi_schema, defs, schema_name)
-        schemas: Final = CustomOpenAPISpec._components_schemas(openapi_schema)
-        schemas[schema_name] = CustomOpenAPISpec._rewrite_defs_refs(schema_def, renames)
+        # Add the schema
+        CustomOpenAPISpec._move_defs_to_components(openapi_schema, {schema_name: schema_def})
 
     @staticmethod
     def _expanded_request_field(field_name: str, field_def: JsonValue) -> JsonValue:
         expanded: Final = CustomOpenAPISpec._rewrite_defs_refs(
-            CustomOpenAPISpec._expand_field_definition(CustomOpenAPISpec._as_object(field_def)),
-            MappingProxyType({}),
+            CustomOpenAPISpec._expand_field_definition(CustomOpenAPISpec._as_object(field_def))
         )
         if field_name != "messages":
             return expanded
@@ -127,6 +127,13 @@ class CustomOpenAPISpec:
             schema_properties = CustomOpenAPISpec._as_object(actual_schema.get("properties"))
             required_fields = actual_schema.get("required", [])
 
+            # Extract $defs and add them to components/schemas
+            # This fixes Pydantic v2 $defs not being resolvable in Swagger/OpenAPI
+            if "$defs" in actual_schema:
+                CustomOpenAPISpec._move_defs_to_components(
+                    openapi_schema, CustomOpenAPISpec._as_object(actual_schema["$defs"])
+                )
+
             # Create an expanded inline schema instead of just a $ref
             # This makes Swagger UI show all individual fields in the request body editor
             expanded_schema: JsonObject = {
@@ -154,9 +161,7 @@ class CustomOpenAPISpec:
                 ]
 
     @staticmethod
-    def _move_defs_to_components(
-        openapi_schema: JsonObject, defs: Mapping[str, JsonValue], namespace: str
-    ) -> Mapping[str, str]:
+    def _move_defs_to_components(openapi_schema: JsonObject, defs: Mapping[str, JsonValue]) -> None:
         """
         Move $defs from Pydantic v2 schema to OpenAPI components/schemas.
         This makes the definitions resolvable in Swagger/OpenAPI viewers.
@@ -164,68 +169,36 @@ class CustomOpenAPISpec:
         Args:
             openapi_schema: The OpenAPI schema dict to modify
             defs: The $defs dictionary from Pydantic schema
-            namespace: Prefix used to rename defs that would overwrite an existing component
-
-        Returns:
-            Map of original def names to renamed component names for collision cases
         """
+        if not defs:
+            return
+
+        # Ensure components/schemas exists
         schemas: Final = CustomOpenAPISpec._components_schemas(openapi_schema)
-        renames: Final = CustomOpenAPISpec._fixed_renames(schemas, defs, namespace, MappingProxyType({}))
+
+        # Add each definition to components/schemas
         for def_name, def_schema in defs.items():
-            if def_name in schemas and def_name not in renames:
-                continue
-            schemas[renames.get(def_name, def_name)] = CustomOpenAPISpec._rewrite_defs_refs(def_schema, renames)
-        return renames
+            # Recursively rewrite any nested $defs references within this definition
+            schemas[def_name] = CustomOpenAPISpec._rewrite_defs_refs(def_schema)
+
+            # If this definition also has $defs, process them recursively
+            def_object = CustomOpenAPISpec._as_object(def_schema)
+            if "$defs" in def_object:
+                CustomOpenAPISpec._move_defs_to_components(
+                    openapi_schema, CustomOpenAPISpec._as_object(def_object["$defs"])
+                )
 
     @staticmethod
-    def _def_collisions(
-        schemas: JsonObject, defs: Mapping[str, JsonValue], namespace: str, renames: Mapping[str, str]
-    ) -> Mapping[str, str]:
-        return MappingProxyType(
-            {
-                name: f"{namespace}_{name}"
-                for name, d in defs.items()
-                if name in schemas
-                and not CustomOpenAPISpec._same_shape(schemas[name], CustomOpenAPISpec._rewrite_defs_refs(d, renames))
-            }
-        )
-
-    @staticmethod
-    def _same_shape(existing: JsonValue, incoming: JsonValue) -> bool:
-        if existing == incoming:
-            return True
-        existing_obj: Final = CustomOpenAPISpec._as_object(existing)
-        incoming_obj: Final = CustomOpenAPISpec._as_object(incoming)
-        existing_props: Final = CustomOpenAPISpec._as_object(existing_obj.get("properties"))
-        incoming_props: Final = CustomOpenAPISpec._as_object(incoming_obj.get("properties"))
-        if not existing_props or not incoming_props:
-            return False
-        return existing_props.keys() == incoming_props.keys() and frozenset(
-            x for x in CustomOpenAPISpec._as_array(existing_obj.get("required")) if isinstance(x, str)
-        ) == frozenset(x for x in CustomOpenAPISpec._as_array(incoming_obj.get("required")) if isinstance(x, str))
-
-    @staticmethod
-    def _fixed_renames(
-        schemas: JsonObject, defs: Mapping[str, JsonValue], namespace: str, renames: Mapping[str, str]
-    ) -> Mapping[str, str]:
-        next_renames: Final = MappingProxyType(
-            {**renames, **CustomOpenAPISpec._def_collisions(schemas, defs, namespace, renames)}
-        )
-        if next_renames == renames:
-            return renames
-        return CustomOpenAPISpec._fixed_renames(schemas, defs, namespace, next_renames)
-
-    @staticmethod
-    def _rewritten_defs_entry(key: str, value: JsonValue, renames: Mapping[str, str]) -> JsonValue:
+    def _rewritten_defs_entry(key: str, value: JsonValue) -> JsonValue:
         if key == "$ref" and isinstance(value, str) and value.startswith("#/$defs/"):
             # Rewrite the reference to use components/schemas
             def_name: Final = value.replace("#/$defs/", "")
-            return f"#/components/schemas/{renames.get(def_name, def_name)}"
+            return f"#/components/schemas/{def_name}"
         # Recursively process nested structures
-        return CustomOpenAPISpec._rewrite_defs_refs(value, renames)
+        return CustomOpenAPISpec._rewrite_defs_refs(value)
 
     @staticmethod
-    def _rewrite_defs_refs(schema: JsonValue, renames: Mapping[str, str]) -> JsonValue:
+    def _rewrite_defs_refs(schema: JsonValue) -> JsonValue:
         """
         Recursively rewrite $ref values from #/$defs/... to #/components/schemas/...
         This converts Pydantic v2 references to OpenAPI-compatible references.
@@ -238,12 +211,12 @@ class CustomOpenAPISpec:
         """
         if isinstance(schema, dict):
             return {
-                key: CustomOpenAPISpec._rewritten_defs_entry(key, value, renames)
+                key: CustomOpenAPISpec._rewritten_defs_entry(key, value)
                 for key, value in schema.items()
                 if key != "$defs"
             }
         if isinstance(schema, list):
-            return [CustomOpenAPISpec._rewrite_defs_refs(item, renames) for item in schema]
+            return [CustomOpenAPISpec._rewrite_defs_refs(item) for item in schema]
         return schema
 
     @staticmethod
@@ -437,41 +410,3 @@ class CustomOpenAPISpec:
 
         # Add responses API request schema
         return CustomOpenAPISpec.add_responses_api_request_schema(with_embeddings)
-
-
-_MAX_INLINE_DEPTH: Final = 32
-
-
-def _inlined(node: JsonValue, defs: Mapping[str, JsonValue], depth: int = 0) -> JsonValue:
-    if depth >= _MAX_INLINE_DEPTH or not isinstance(node, (list, dict)):
-        return node
-    if isinstance(node, list):
-        return [_inlined(item, defs, depth + 1) for item in node]
-    ref: Final = node.get("$ref")
-    if isinstance(ref, str) and ref.startswith("#/$defs/"):
-        target: Final = _inlined(defs[ref.removeprefix("#/$defs/")], defs, depth + 1)
-        siblings: Final = {key: _inlined(value, defs, depth + 1) for key, value in node.items() if key != "$ref"}
-        return {**target, **siblings} if isinstance(target, dict) else siblings
-    if "propertyName" in node and "mapping" in node:
-        return {"propertyName": node["propertyName"]}
-    return {key: _inlined(value, defs, depth + 1) for key, value in node.items() if key != "$defs"}
-
-
-def inline_request_body(model_class: type, example: Mapping[str, object]) -> JsonObject:
-    """
-    Build an ``openapi_extra["requestBody"]`` for a route that reads its body with ``request.body()``.
-
-    Swagger UI resolves ``$ref`` against the whole document, so a schema placed inline in an operation
-    cannot keep Pydantic's ``#/$defs/...`` references. Every reference is expanded in place instead,
-    which also keeps the operation self-contained inside the lazy OpenAPI snapshot.
-    """
-    schema: Final = CustomOpenAPISpec.get_pydantic_schema(model_class)
-    media: Final[JsonObject] = {"example": cast(JsonValue, dict(example))}  # cast-ok: JSON example literal
-    if schema is None:
-        return {"required": True, "content": {"application/json": media}}
-    raw_defs: Final = schema.get("$defs")
-    defs: Final[Mapping[str, JsonValue]] = raw_defs if isinstance(raw_defs, dict) else MappingProxyType({})
-    return {
-        "required": True,
-        "content": {"application/json": {"schema": _inlined(schema, defs), **media}},
-    }

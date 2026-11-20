@@ -2,7 +2,7 @@
 Vertex AI Image Edit Cost Calculator
 """
 
-from typing import Final
+from typing import Any, Final
 
 import litellm
 from litellm.types.utils import ImageResponse
@@ -10,7 +10,7 @@ from litellm.types.utils import ImageResponse
 
 def cost_calculator(
     model: str,
-    image_response: object,
+    image_response: Any,
 ) -> float:
     """
     Vertex AI image edit cost calculator.

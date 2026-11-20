@@ -20,9 +20,9 @@ from pydantic import BaseModel, Field
 
 from e2e_config import unique_marker
 from e2e_http import AuthHeaders, NoBody, require_successful_call, unwrap
-from e2e_metadata import Domain, Mode, Provider, Route, Subject, meta
+from endpoints_client import MessagesResult
 from lifecycle import ResourceManager
-from models import AnthropicMessagesResponse, ChatMessage, KeyGenerateBody
+from models import ChatMessage, KeyGenerateBody
 from passthrough_client import PassthroughClient
 
 pytestmark = pytest.mark.e2e
@@ -137,15 +137,6 @@ class TestPassthroughHeaders:
         "other.config.passthrough.headers_forwarded",
         exercised_on=[],
     )
-    @meta(
-        Subject(
-            domain=Domain.PASSTHROUGH,
-            route=Route.PASSTHROUGH,
-            providers=(Provider.ANTHROPIC,),
-            models=(MODEL,),
-            mode=Mode.NONSTREAM,
-        )
-    )
     def test_static_and_x_pass_headers_reach_upstream(
         self, client: PassthroughClient, resources: ResourceManager
     ) -> None:
@@ -174,9 +165,8 @@ class TestPassthroughHeaders:
             json=_messages_body(),
         )
         require_successful_call(result)
-        completion = AnthropicMessagesResponse.model_validate_json(result.body)
-        text = "".join(block.text or "" for block in (completion.content or []))
-        assert text.strip(), (
+        completion = MessagesResult.model_validate_json(result.body)
+        assert completion.text.strip(), (
             f"static x-api-key must reach Anthropic for the call to succeed at all; got {result.body[:300]}"
         )
 

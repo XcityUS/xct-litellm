@@ -14,6 +14,7 @@ export const menuLabelToPage: Record<string, Page> = {
   "Internal Users": Page.Users,
   "Internal User": Page.Users, // Legacy label support
   Organizations: Page.Organizations,
+  "API Reference": Page.ApiRef,
   "AI Hub": Page.ModelHubTable,
   "Model Hub": Page.ModelHubTable,
   Logs: Page.Logs,
@@ -31,6 +32,7 @@ export const menuLabelToPage: Record<string, Page> = {
   Budgets: Page.Budgets,
   "API Playground": Page.TransformRequest,
   "Tag Management": Page.TagManagement,
+  "Old Usage": Page.Usage,
   // Tools submenu items
   "MCP Servers": Page.McpServers,
   "Vector Stores": Page.VectorStores,

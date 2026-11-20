@@ -1,12 +1,10 @@
 from typing import TYPE_CHECKING, Final
 
 import litellm
-from litellm.litellm_core_utils.core_helpers import attribute_or_none
 from litellm.proxy.guardrails.guardrail_hooks.openai.moderations import (
     OpenAIModerationGuardrail,
 )
 from litellm.types.guardrails import SupportedGuardrailIntegrations
-from litellm.types.workload_identity import OPENAI_WIF_KWARGS_KEYS
 
 if TYPE_CHECKING:
     from litellm.types.guardrails import Guardrail, LitellmParams
@@ -21,7 +19,6 @@ def initialize_guardrail(litellm_params: "LitellmParams", guardrail: "Guardrail"
 
     openai_moderation_guardrail: Final = OpenAIModerationGuardrail(
         guardrail_name=guardrail_name,
-        workload_identity_params=litellm_params.model_dump(include=set(OPENAI_WIF_KWARGS_KEYS), exclude_none=True),
         **{
             **litellm_params.model_dump(exclude_none=True),
             "api_key": litellm_params.api_key,
@@ -41,12 +38,12 @@ def initialize_guardrail(litellm_params: "LitellmParams", guardrail: "Guardrail"
     return openai_moderation_guardrail
 
 
-def _get_config_value(litellm_params: object, optional_params: object, attribute_name: str) -> object:
+def _get_config_value(litellm_params, optional_params, attribute_name):
     if optional_params is not None:
-        value: Final = attribute_or_none(optional_params, attribute_name)
+        value: Final = getattr(optional_params, attribute_name, None)
         if value is not None:
             return value
-    return attribute_or_none(litellm_params, attribute_name)
+    return getattr(litellm_params, attribute_name, None)
 
 
 guardrail_initializer_registry: Final = {

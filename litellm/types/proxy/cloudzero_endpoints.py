@@ -5,12 +5,10 @@ CloudZero endpoint types for LiteLLM Proxy
 from datetime import datetime
 from typing import Any
 
-from pydantic import Field
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, Field
 
 
-class CloudZeroInitRequest(LiteLLMBaseModel):
+class CloudZeroInitRequest(BaseModel):
     """Request model for initializing CloudZero settings"""
 
     api_key: str = Field(..., description="CloudZero API key for authentication")
@@ -18,14 +16,14 @@ class CloudZeroInitRequest(LiteLLMBaseModel):
     timezone: str = Field(default="UTC", description="Timezone for date handling (default: UTC)")
 
 
-class CloudZeroInitResponse(LiteLLMBaseModel):
+class CloudZeroInitResponse(BaseModel):
     """Response model for CloudZero initialization"""
 
     message: str
     status: str
 
 
-class CloudZeroExportRequest(LiteLLMBaseModel):
+class CloudZeroExportRequest(BaseModel):
     """Request model for CloudZero export operations"""
 
     limit: int | None = Field(None, description="Optional limit on number of records to export")
@@ -37,7 +35,7 @@ class CloudZeroExportRequest(LiteLLMBaseModel):
     end_time_utc: datetime | None = Field(None, description="End time for data export in UTC")
 
 
-class CloudZeroExportResponse(LiteLLMBaseModel):
+class CloudZeroExportResponse(BaseModel):
     """Response model for CloudZero export operations"""
 
     message: str
@@ -46,10 +44,10 @@ class CloudZeroExportResponse(LiteLLMBaseModel):
     dry_run_data: dict[str, Any] | None = Field(
         None, description="Dry run data including usage data and CBF transformed data"
     )
-    summary: dict[str, object] | None = Field(None, description="Summary statistics for dry run")
+    summary: dict[str, Any] | None = Field(None, description="Summary statistics for dry run")
 
 
-class CloudZeroSettingsView(LiteLLMBaseModel):
+class CloudZeroSettingsView(BaseModel):
     """Response model for viewing CloudZero settings with masked API key"""
 
     api_key_masked: str | None = Field(None, description="Masked API key showing only first 4 and last 4 characters")
@@ -58,7 +56,7 @@ class CloudZeroSettingsView(LiteLLMBaseModel):
     status: str | None = Field(None, description="Configuration status")
 
 
-class CloudZeroSettingsUpdate(LiteLLMBaseModel):
+class CloudZeroSettingsUpdate(BaseModel):
     """Request model for updating CloudZero settings"""
 
     api_key: str | None = Field(None, description="New CloudZero API key for authentication")

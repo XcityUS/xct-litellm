@@ -2,7 +2,7 @@ import builtins
 import json
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Final, Literal, Protocol
+from typing import Any, Final, Literal
 
 import click
 import requests
@@ -20,9 +20,8 @@ class _CliContext(TypedDict):
     api_key: ReadOnly[str | None]
 
 
-class _CliContextView(Protocol):
-    @property
-    def obj(self) -> _CliContext: ...
+class _CliContextView(TypedDict):
+    obj: ReadOnly[_CliContext]
 
 
 class _KeyRowsView(TypedDict):
@@ -31,26 +30,6 @@ class _KeyRowsView(TypedDict):
 
 class _JsonBodyView(TypedDict):
     body: ReadOnly[object]
-
-
-class _KeyImportFields(TypedDict, total=False, extra_items=object):
-    pass
-
-
-_KEY_IMPORT_FIELD_NAMES: Final = (
-    "models",
-    "aliases",
-    "spend",
-    "key_alias",
-    "team_id",
-    "user_id",
-    "budget_id",
-    "config",
-)
-
-
-def _cli_context(view: _CliContextView) -> _CliContext:
-    return view.obj
 
 
 @click.group()
@@ -95,8 +74,8 @@ def list(
     return_full_object: bool,
 ):
     """List all API keys"""
-    context: Final = _cli_context(ctx)
-    client: Final = KeysManagementClient(context["base_url"], context["api_key"])
+    context: Final[_CliContextView] = {"obj": ctx.obj}
+    client: Final = KeysManagementClient(context["obj"]["base_url"], context["obj"]["api_key"])
     response: Final = client.list(
         page=page,
         size=size,
@@ -161,8 +140,8 @@ def generate(
     config: str | None,
 ):
     """Generate a new API key"""
-    context: Final = _cli_context(ctx)
-    client: Final = KeysManagementClient(context["base_url"], context["api_key"])
+    context: Final[_CliContextView] = {"obj": ctx.obj}
+    client: Final = KeysManagementClient(context["obj"]["base_url"], context["obj"]["api_key"])
     try:
         models_list: Final = [m.strip() for m in models.split(",")] if models else None
         aliases_dict: Final = json.loads(aliases) if aliases else None
@@ -198,8 +177,8 @@ def generate(
 @click.pass_context
 def delete(ctx: click.Context, keys: str | None, key_aliases: str | None):
     """Delete API keys by key or alias"""
-    context: Final = _cli_context(ctx)
-    client: Final = KeysManagementClient(context["base_url"], context["api_key"])
+    context: Final[_CliContextView] = {"obj": ctx.obj}
+    client: Final = KeysManagementClient(context["obj"]["base_url"], context["obj"]["api_key"])
     keys_list: Final = [k.strip() for k in keys.split(",")] if keys else None
     aliases_list: Final = [a.strip() for a in key_aliases.split(",")] if key_aliases else None
     try:
@@ -318,9 +297,25 @@ def _display_dry_run_table(source_keys: Sequence[Mapping[str, object]]) -> None:
     rich.print(table)
 
 
-def _prepare_key_import_data(key: Mapping[str, object]) -> _KeyImportFields:
+def _prepare_key_import_data(key: Mapping[str, object]) -> dict[str, Any]:
     """Prepare key data for import by extracting relevant fields."""
-    return _KeyImportFields(**{field: key[field] for field in _KEY_IMPORT_FIELD_NAMES if key.get(field)})
+    import_data: Final = {}
+
+    # Copy relevant fields if they exist
+    for field in [
+        "models",
+        "aliases",
+        "spend",
+        "key_alias",
+        "team_id",
+        "user_id",
+        "budget_id",
+        "config",
+    ]:
+        if key.get(field):
+            import_data[field] = key[field]
+
+    return import_data
 
 
 def _import_keys_to_destination(
@@ -382,8 +377,8 @@ def import_keys(
 
     # Create clients for both source and destination
     source_client: Final = KeysManagementClient(source_base_url, source_api_key)
-    context: Final = _cli_context(ctx)
-    dest_client: Final = KeysManagementClient(context["base_url"], context["api_key"])
+    context: Final[_CliContextView] = {"obj": ctx.obj}
+    dest_client: Final = KeysManagementClient(context["obj"]["base_url"], context["obj"]["api_key"])
 
     try:
         # Get all keys from source instance with pagination

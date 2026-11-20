@@ -4,8 +4,8 @@ HTTP Handler for Interactions API requests.
 This module handles the HTTP communication for the Google Interactions API.
 """
 
-from collections.abc import AsyncIterator, Callable, Coroutine, Iterator, Mapping
-from typing import Final, Protocol
+from collections.abc import AsyncIterator, Coroutine, Iterator, Mapping
+from typing import Any, Final
 
 import httpx
 
@@ -20,8 +20,8 @@ from litellm.llms.base_llm.interactions.transformation import BaseInteractionsAP
 from litellm.llms.custom_httpx.http_handler import (
     AsyncHTTPHandler,
     HTTPHandler,
+    _get_httpx_client,
     get_async_httpx_client,
-    get_httpx_client,
 )
 from litellm.types.interactions import (
     CancelInteractionResult,
@@ -34,11 +34,6 @@ from litellm.types.interactions import (
 from litellm.types.router import GenericLiteLLMParams
 
 
-class _ErrorClassSource(Protocol):
-    @property
-    def get_error_class(self) -> Callable[..., Exception]: ...
-
-
 class _BaseHTTPHandler:
     """
     Shared HTTP infrastructure for LiteLLM handler classes.
@@ -48,7 +43,7 @@ class _BaseHTTPHandler:
     not duplicate this boilerplate.
     """
 
-    def _handle_error(self, e: Exception, provider_config: _ErrorClassSource) -> Exception:
+    def _handle_error(self, e: Exception, provider_config: Any) -> Exception:
         if isinstance(e, httpx.HTTPStatusError):
             return provider_config.get_error_class(
                 error_message=e.response.text,
@@ -62,7 +57,7 @@ class _BaseHTTPHandler:
         litellm_params: GenericLiteLLMParams,
         client: HTTPHandler | None,
     ) -> HTTPHandler:
-        return client or get_httpx_client(params={"ssl_verify": litellm_params.get("ssl_verify", None)})
+        return client or _get_httpx_client(params={"ssl_verify": litellm_params.get("ssl_verify", None)})
 
     def _async_client(
         self,
@@ -82,7 +77,7 @@ class InteractionsHTTPHandler(_BaseHTTPHandler):
     HTTP handler for Interactions API requests.
     """
 
-    # _handle_error is inherited from _BaseHTTPHandler (accepts any config exposing get_error_class).
+    # _handle_error is inherited from _BaseHTTPHandler (accepts Any provider_config).
     # AgentsHTTPHandler also extends this class and passes BaseAgentsAPIConfig, which
     # is structurally compatible but a different type — keeping the override here with
     # BaseInteractionsAPIConfig would cause type errors in the subclass.
@@ -134,7 +129,7 @@ class InteractionsHTTPHandler(_BaseHTTPHandler):
             )
 
         if client is None:
-            sync_httpx_client = get_httpx_client(params={"ssl_verify": litellm_params.get("ssl_verify", None)})
+            sync_httpx_client = _get_httpx_client(params={"ssl_verify": litellm_params.get("ssl_verify", None)})
         else:
             sync_httpx_client = client
 
@@ -161,9 +156,8 @@ class InteractionsHTTPHandler(_BaseHTTPHandler):
             headers=headers,
         )
 
-        request_fields: Final = interactions_api_config.transform_top_level_request_fields(extra_body, litellm_params)
-        if request_fields:
-            data.update(request_fields)
+        if extra_body:
+            data.update(extra_body)
 
         # Logging
         logging_obj.pre_call(
@@ -257,9 +251,8 @@ class InteractionsHTTPHandler(_BaseHTTPHandler):
             headers=headers,
         )
 
-        request_fields: Final = interactions_api_config.transform_top_level_request_fields(extra_body, litellm_params)
-        if request_fields:
-            data.update(request_fields)
+        if extra_body:
+            data.update(extra_body)
 
         # Logging
         logging_obj.pre_call(
@@ -370,7 +363,7 @@ class InteractionsHTTPHandler(_BaseHTTPHandler):
             )
 
         if client is None:
-            sync_httpx_client = get_httpx_client(params={"ssl_verify": litellm_params.get("ssl_verify", None)})
+            sync_httpx_client = _get_httpx_client(params={"ssl_verify": litellm_params.get("ssl_verify", None)})
         else:
             sync_httpx_client = client
 
@@ -489,7 +482,7 @@ class InteractionsHTTPHandler(_BaseHTTPHandler):
             )
 
         if client is None:
-            sync_httpx_client = get_httpx_client(params={"ssl_verify": litellm_params.get("ssl_verify", None)})
+            sync_httpx_client = _get_httpx_client(params={"ssl_verify": litellm_params.get("ssl_verify", None)})
         else:
             sync_httpx_client = client
 
@@ -610,7 +603,7 @@ class InteractionsHTTPHandler(_BaseHTTPHandler):
             )
 
         if client is None:
-            sync_httpx_client = get_httpx_client(params={"ssl_verify": litellm_params.get("ssl_verify", None)})
+            sync_httpx_client = _get_httpx_client(params={"ssl_verify": litellm_params.get("ssl_verify", None)})
         else:
             sync_httpx_client = client
 

@@ -7,7 +7,7 @@
 
 import json
 import os
-from typing import TYPE_CHECKING, Final, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Final, Literal, TypedDict
 
 from fastapi import HTTPException
 
@@ -80,11 +80,9 @@ class GuardrailsAI(CustomGuardrail):
             headers={
                 "Content-Type": "application/json",
             },
-            timeout=self.timeout,
         )
         verbose_proxy_logger.debug("guardrails_ai response: %s", response)
-        decoded_response: Final[GuardrailsAIResponse] = response.json()
-        _json_response: Final = GuardrailsAIResponse(**decoded_response)
+        _json_response: Final = GuardrailsAIResponse(**response.json())
         if _json_response.get("validationPassed") is False:
             raise HTTPException(
                 status_code=400,
@@ -119,7 +117,6 @@ class GuardrailsAI(CustomGuardrail):
             headers={
                 "Content-Type": "application/json",
             },
-            timeout=self.timeout,
         )
         verbose_proxy_logger.debug("guardrails_ai response: %s", response)
         if response.status_code == 400:
@@ -131,8 +128,7 @@ class GuardrailsAI(CustomGuardrail):
                 },
             )
 
-        decoded_response: Final[GuardrailsAIResponsePreCall] = response.json()
-        _json_response: Final = GuardrailsAIResponsePreCall(**decoded_response)
+        _json_response: Final = GuardrailsAIResponsePreCall(**response.json())
         response = _json_response.get("outputs", [])[0].get("data", [])[0]
         return response
 
@@ -185,7 +181,7 @@ class GuardrailsAI(CustomGuardrail):
     ):  # raise exception if invalid, return a str for the user to receive - if rejected, or return a modified dictionary for passing into litellm
         return await self.process_input(data=data, call_type=call_type)
 
-    async def async_logging_hook(self, kwargs: dict, result: object, call_type: str) -> tuple[dict, object]:
+    async def async_logging_hook(self, kwargs: dict, result: Any, call_type: str) -> tuple[dict, Any]:
         if call_type == "acompletion" or call_type == "completion":
             kwargs = await self.process_input(data=kwargs, call_type=call_type)
 

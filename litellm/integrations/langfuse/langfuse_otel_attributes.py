@@ -5,9 +5,7 @@ Relevant Issue: https://github.com/BerriAI/litellm/issues/13764
 """
 
 import json
-from collections.abc import Mapping
-from datetime import datetime
-from typing import TYPE_CHECKING, Final, Protocol
+from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import BaseModel
 from typing_extensions import override
@@ -16,8 +14,6 @@ from litellm.integrations.opentelemetry_utils.base_otel_llm_obs_attributes impor
     BaseLLMObsOTELAttributes,
     safe_set_attribute,
 )
-from litellm.litellm_core_utils.core_helpers import require_attributes
-from litellm.litellm_core_utils.safe_json_dumps import jsonable_or_str
 from litellm.types.llms.openai import HttpxBinaryResponseContent, ResponsesAPIResponse
 from litellm.types.utils import (
     EmbeddingResponse,
@@ -32,14 +28,6 @@ if TYPE_CHECKING:
     from opentelemetry.trace import Span
 
 
-class _SupportsGet(Protocol):
-    def get(self, key: str, /) -> object: ...
-
-
-def serialize_langfuse_datetime(value: datetime) -> str:
-    return json.dumps(value.astimezone().isoformat())
-
-
 def get_output_content_by_type(
     response_obj: None
     | dict
@@ -52,7 +40,7 @@ def get_output_content_by_type(
     | HttpxBinaryResponseContent
     | ResponsesAPIResponse
     | list,
-    kwargs: Mapping[str, object] | None = None,
+    kwargs: dict[str, Any] | None = None,
 ) -> str:
     """
     Extract output content from response objects based on their type.
@@ -93,18 +81,18 @@ def get_output_content_by_type(
 class LangfuseLLMObsOTELAttributes(BaseLLMObsOTELAttributes):
     @staticmethod
     @override
-    def set_messages(span: "Span", kwargs: Mapping[str, object]):
+    def set_messages(span: "Span", kwargs: dict[str, Any]):
         prompt: Final = {"messages": kwargs.get("messages")}
         optional_params: Final = kwargs.get("optional_params", {})
-        functions: Final = require_attributes(optional_params, _SupportsGet, "get").get("functions")
-        tools: Final = require_attributes(optional_params, _SupportsGet, "get").get("tools")
+        functions: Final = optional_params.get("functions")
+        tools: Final = optional_params.get("tools")
         if functions is not None:
             prompt["functions"] = functions
         if tools is not None:
             prompt["tools"] = tools
 
         input: Final = prompt
-        safe_set_attribute(span, "langfuse.observation.input", json.dumps(input, default=jsonable_or_str))
+        safe_set_attribute(span, "langfuse.observation.input", json.dumps(input))
 
     @staticmethod
     @override

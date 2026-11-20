@@ -1,33 +1,30 @@
 from __future__ import annotations
 
-from typing import Final, Literal, TypeAlias
+from typing import Final, Literal
 
-from pydantic import ConfigDict, Field
-
-from litellm.types.llms.base import LiteLLMBaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from .base import GuardrailConfigModel
 
 StraikerWebhookEventType = Literal["pre_call", "post_call"]
 StraikerWebhookStreamPhase = Literal["none", "assembled"]
 StraikerWebhookAction = Literal["NONE", "BLOCKED", "GUARDRAIL_INTERVENED"]
-StraikerStreamMode: TypeAlias = Literal["buffered", "streaming"]
 
 STRAIKER_WEBHOOK_SCHEMA_VERSION: Final = "1"
 
 
-class StraikerWebhookStream(LiteLLMBaseModel):
+class StraikerWebhookStream(BaseModel):
     phase: StraikerWebhookStreamPhase = "none"
     index: int | None = None
 
 
-class StraikerWebhookEvent(LiteLLMBaseModel):
+class StraikerWebhookEvent(BaseModel):
     type: StraikerWebhookEventType
     id: str
     stream: StraikerWebhookStream = Field(default_factory=StraikerWebhookStream)
 
 
-class StraikerWebhookContent(LiteLLMBaseModel):
+class StraikerWebhookContent(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     texts: list[str] = Field(default_factory=list)
@@ -38,12 +35,12 @@ class StraikerWebhookContent(LiteLLMBaseModel):
     finish_reason: str | None = None
 
 
-class StraikerWebhookUsage(LiteLLMBaseModel):
+class StraikerWebhookUsage(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
 
 
-class StraikerWebhookContext(LiteLLMBaseModel):
+class StraikerWebhookContext(BaseModel):
     call_surface: str
     mode: list[str] | None = None
     model: str | None = None
@@ -55,7 +52,7 @@ class StraikerWebhookContext(LiteLLMBaseModel):
     litellm_version: str | None = None
 
 
-class StraikerWebhookIdentity(LiteLLMBaseModel):
+class StraikerWebhookIdentity(BaseModel):
     litellm_key: str | None = None
     litellm_team: str | None = None
     litellm_user_id: str | None = None
@@ -64,12 +61,12 @@ class StraikerWebhookIdentity(LiteLLMBaseModel):
     end_user_id: str | None = None
 
 
-class StraikerWebhookApplication(LiteLLMBaseModel):
+class StraikerWebhookApplication(BaseModel):
     source: str
     name: str | None = None
 
 
-class StraikerWebhookRequest(LiteLLMBaseModel):
+class StraikerWebhookRequest(BaseModel):
     schema_version: str = STRAIKER_WEBHOOK_SCHEMA_VERSION
     event: StraikerWebhookEvent
     request: StraikerWebhookContent
@@ -81,38 +78,26 @@ class StraikerWebhookRequest(LiteLLMBaseModel):
     metadata: dict[str, object] | None = None
 
 
-class StraikerWebhookResponse(LiteLLMBaseModel):
+class StraikerWebhookResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     action: StraikerWebhookAction = "NONE"
     blocked_reason: str | None = None
-    #: The controls that blocked this turn, when the platform names them. Empty for a block
-    #: that comes from state rather than content, such as an engaged kill switch.
-    blocked_by: tuple[str, ...] = ()
     texts: list[str] | None = None
     schema_version: str | None = None
     turn_id: str | None = Field(default=None, alias="turnId")
-    #: The v3 reply's own answer, `allow`, `detect` or `block`, and the turn's details, as the
-    #: guardrail logs them. `action` above is the v1 vocabulary the guardrail acts on.
-    verdict: str | None = None
-    #: Every control that fired, in detect or block mode; `blocked_by` is the subset that blocked.
-    controls: tuple[str, ...] = ()
-    events_scored: int | None = None
-    session_id: str | None = None
 
 
-class StraikerGuardrailConfigModelOptionalParams(LiteLLMBaseModel):
+class StraikerGuardrailConfigModelOptionalParams(BaseModel):
     timeout: float | None = Field(
         default=5.0,
         gt=0.0,
-        description="Per-attempt HTTP timeout in seconds. An attempt that times out is not retried.",
+        description="Per-attempt HTTP timeout in seconds.",
     )
     max_retries: int | None = Field(
         default=2,
         ge=0,
-        description=(
-            "Retries on HTTP 408, 429, 500, 502, 503 and 504 and on connection errors. Timeouts are not retried."
-        ),
+        description="Retries on transient HTTP (408/429/5xx) and network errors.",
     )
     initial_backoff: float | None = Field(
         default=0.1,
@@ -126,10 +111,7 @@ class StraikerGuardrailConfigModelOptionalParams(LiteLLMBaseModel):
     )
     unreachable_fallback: Literal["fail_open", "fail_closed"] | None = Field(
         default="fail_closed",
-        description=(
-            "Behavior when Straiker cannot give a verdict: a timeout, a connection error, or HTTP "
-            "408, 429, 500, 502, 503 or 504 once retries are spent. Other errors follow fail_on_error."
-        ),
+        description="Behavior when Straiker is unreachable after retries.",
     )
     fail_on_error: bool | None = Field(
         default=True,
@@ -142,47 +124,6 @@ class StraikerGuardrailConfigModelOptionalParams(LiteLLMBaseModel):
         default=524288,
         gt=0,
         description="Maximum serialized webhook payload size sent to Straiker.",
-    )
-    stream_mode: StraikerStreamMode | None = Field(
-        default="buffered",
-        description=(
-            "How a streamed response reaches the client when post_call is on. 'buffered' (default) "
-            "withholds every chunk until Straiker has checked the whole response, so a blocked "
-            "response never reaches the client. 'streaming' sends chunks as they arrive and checks "
-            "the assembled response at the end, holding back only the stream's final frames: a "
-            "block then ends the stream with the block message, but the text before it has "
-            "already been delivered."
-        ),
-    )
-    api_version: Literal["v1", "v3"] | None = Field(
-        default=None,
-        description=(
-            "Straiker detect API the gateway calls. 'v1' posts the structured webhook envelope "
-            "to /api/v1/detect/webhook (legacy Defend, UUID collection key). 'v3' relays the "
-            "provider request and response to /api/v3/detect, the v3 platform's only detect "
-            "route, which accepts only an sk_agt_ integration key. Unset: chosen from the key "
-            "prefix, so a v3 key needs no extra configuration."
-        ),
-    )
-    agent_ref: str | None = Field(
-        default=None,
-        description=(
-            "v3 only. Names the Straiker agent this route's traffic belongs to when one gateway "
-            "fronts several applications, sent as x-s6r-agent. It wins over a client-supplied "
-            "x-s6r-agent header. Names ONE agent, never a kind of agent: Straiker keys per-agent state on it, so "
-            "sharing a value across applications merges them into one agent."
-        ),
-    )
-    client: str | None = Field(
-        default=None,
-        description=(
-            "v3 only. Optional x-s6r-client routing hint. Leave unset on a shared gateway; set it on a "
-            "route that serves a single application."
-        ),
-    )
-    format_hint: Literal["anthropic.messages", "openai.chat"] | None = Field(
-        default=None,
-        description="v3 only. Optional x-s6r-format hint. Only breaks the messages-array tie between formats.",
     )
     custom_headers: dict[str, str] | None = Field(
         default=None,

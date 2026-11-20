@@ -6,14 +6,12 @@ from dataclasses import dataclass
 from itertools import accumulate
 from typing import TYPE_CHECKING, Any, Final, Literal, NoReturn, Optional, TypeAlias
 
-from pydantic import TypeAdapter
 from typing_extensions import ReadOnly, TypedDict, assert_never
 
 import litellm
 from litellm import get_secret
 from litellm._logging import verbose_proxy_logger
 from litellm.constants import (
-    BAGGAGE_MAPPED_TAGS_METADATA_KEY,
     CLIENT_OUTPUT_CEILING_METADATA_KEY,
     CONSUMED_REQUEST_TAGS_METADATA_KEY,
     MAX_GUARDRAIL_SCAN_METADATA_HEADER_LENGTH,
@@ -26,10 +24,8 @@ from litellm.litellm_core_utils.core_helpers import (
     get_metadata_variable_name_from_kwargs,
     get_or_create_metadata_bucket,
 )
-from litellm.litellm_core_utils.credential_accessor import CredentialAccessor
 from litellm.litellm_core_utils.sensitive_data_masker import SensitiveDataMasker
-from litellm.proxy._types import CALLBACK_VAR_NAMES, CommonProxyErrors, LiteLLMPromptInjectionParams
-from litellm.proxy.common_utils.callback_config_validation import object_sequence, string_keyed
+from litellm.proxy._types import CommonProxyErrors, LiteLLMPromptInjectionParams
 from litellm.proxy.common_utils.encrypt_decrypt_utils import (
     decrypt_value_helper,
     encrypt_value_helper,
@@ -42,15 +38,13 @@ from litellm.types.utils import (
 )
 
 _CALLBACK_VAR_MASKER: Final = SensitiveDataMasker()
-_LOADED_CALLBACK: Final = TypeAdapter(object)
 # Compound names that are credential-bearing but don't contain any of the
 # default sensitive segments (so SensitiveDataMasker won't flag them).
 _EXTRA_SENSITIVE_CALLBACK_KEYS: Final = {"gcs_path_service_account"}
 # Sentinel prefix on encrypted callback_var values. Lets us detect
 # already-encrypted input cheaply (no decrypt-attempt round trip) and
 # avoid double-encrypting if `LITELLM_SALT_KEY` is rotated between writes.
-CALLBACK_VAR_ENCRYPTED_PREFIX: Final = "litellm_enc::"
-_CALLBACK_VAR_ENCRYPTED_PREFIX: Final = CALLBACK_VAR_ENCRYPTED_PREFIX
+_CALLBACK_VAR_ENCRYPTED_PREFIX: Final = "litellm_enc::"
 # Metadata slots that hold operator-configured callback and secret-manager setup
 # (and therefore integration credentials). Resolved from UserAPIKeyAuth during
 # pre-call setup, never read back off the copies stamped into request metadata.
@@ -91,10 +85,6 @@ class _CallbackNotDispatchable:
 
 
 _CallbackLoadError: TypeAlias = _CallbackResolvedToClass | _CallbackNotDispatchable
-
-
-class _PresidioOptions(TypedDict, total=False, extra_items=object):
-    pass
 
 
 def _classify_loaded_callback(entry: str, loaded: object) -> CustomLogger | Callable[..., object] | _CallbackLoadError:
@@ -159,18 +149,6 @@ def initialize_callbacks_on_proxy(
     if isinstance(value, list):
         imported_list: Final[list[Any]] = []
         for callback in value:  # ["presidio", <my-custom-callback>]
-            if callback == "customer_budget_webhook":
-                from litellm.integrations.customer_budget_webhook import CustomerBudgetWebhook
-
-                imported_list.append(
-                    CustomerBudgetWebhook.from_config(
-                        string_keyed(_LOADED_CALLBACK.validate_python(callback_specific_params)).get(
-                            "customer_budget_webhook"
-                        )
-                    )
-                )
-                continue
-
             if isinstance(callback, str) and callback == "compression_interception":
                 from litellm.integrations.compression_interception.handler import (
                     CompressionInterceptionLogger,
@@ -197,27 +175,27 @@ def initialize_callbacks_on_proxy(
 
             # check if callback is a custom logger compatible callback
             if isinstance(callback, str):
-                callback = LoggingCallbackManager.add_custom_callback_generic_api_str(callback)
+                callback = LoggingCallbackManager._add_custom_callback_generic_api_str(callback)
             if isinstance(callback, str) and callback in litellm._known_custom_logger_compatible_callbacks:
                 imported_list.append(callback)
             elif isinstance(callback, str) and callback == "presidio":
                 from litellm.proxy.guardrails.guardrail_hooks.presidio import (
-                    OPTIONAL_PresidioPIIMasking,
+                    _OPTIONAL_PresidioPIIMasking,
                 )
 
                 presidio_logging_only: bool | None = litellm_settings.get("presidio_logging_only", None)
                 if presidio_logging_only is not None:
                     presidio_logging_only = bool(presidio_logging_only)  # validate boolean given
 
-                _presidio_params: Mapping[str, object] = {}
+                _presidio_params = {}
                 if "presidio" in callback_specific_params and isinstance(callback_specific_params["presidio"], dict):
                     _presidio_params = callback_specific_params["presidio"]
 
-                params: Mapping[str, object] = {
+                params: dict[str, Any] = {
                     "logging_only": presidio_logging_only,
                     **_presidio_params,
                 }
-                pii_masking_object = OPTIONAL_PresidioPIIMasking(**_PresidioOptions(**params))
+                pii_masking_object = _OPTIONAL_PresidioPIIMasking(**params)
                 imported_list.append(pii_masking_object)
             elif isinstance(callback, str) and callback == "llamaguard_moderations":
                 try:
@@ -251,8 +229,8 @@ def initialize_callbacks_on_proxy(
                 imported_list.append(_secret_detection_object)
             elif isinstance(callback, str) and callback == "openai_moderations":
                 try:
-                    from litellm.enterprise.enterprise_hooks.openai_moderation import (
-                        ENTERPRISE_OpenAI_Moderation,
+                    from enterprise.enterprise_hooks.openai_moderation import (
+                        _ENTERPRISE_OpenAI_Moderation,
                     )
                 except ImportError:
                     raise Exception(
@@ -263,7 +241,7 @@ def initialize_callbacks_on_proxy(
                 if premium_user is not True:
                     raise Exception("Trying to use OpenAI Moderations Check" + CommonProxyErrors.not_premium_user.value)
 
-                openai_moderations_object = ENTERPRISE_OpenAI_Moderation()
+                openai_moderations_object = _ENTERPRISE_OpenAI_Moderation()
                 imported_list.append(openai_moderations_object)
             elif isinstance(callback, str) and callback == "lakera_prompt_injection":
                 from litellm.proxy.guardrails.guardrail_hooks.lakera_ai import (
@@ -286,8 +264,8 @@ def initialize_callbacks_on_proxy(
                 imported_list.append(aporia_guardrail_object)
             elif isinstance(callback, str) and callback == "google_text_moderation":
                 try:
-                    from litellm.enterprise.enterprise_hooks.google_text_moderation import (
-                        ENTERPRISE_GoogleTextModeration,
+                    from enterprise.enterprise_hooks.google_text_moderation import (
+                        _ENTERPRISE_GoogleTextModeration,
                     )
                 except ImportError:
                     raise Exception(
@@ -298,7 +276,7 @@ def initialize_callbacks_on_proxy(
                 if premium_user is not True:
                     raise Exception("Trying to use Google Text Moderation" + CommonProxyErrors.not_premium_user.value)
 
-                google_text_moderation_obj = ENTERPRISE_GoogleTextModeration()
+                google_text_moderation_obj = _ENTERPRISE_GoogleTextModeration()
                 imported_list.append(google_text_moderation_obj)
             elif isinstance(callback, str) and callback == "llmguard_moderations":
                 try:
@@ -315,8 +293,8 @@ def initialize_callbacks_on_proxy(
                 imported_list.append(llm_guard_moderation_obj)
             elif isinstance(callback, str) and callback == "blocked_user_check":
                 try:
-                    from litellm.enterprise.enterprise_hooks.blocked_user_list import (
-                        ENTERPRISE_BlockedUserList,
+                    from enterprise.enterprise_hooks.blocked_user_list import (
+                        _ENTERPRISE_BlockedUserList,
                     )
                 except ImportError:
                     raise Exception(
@@ -326,12 +304,12 @@ def initialize_callbacks_on_proxy(
                 if premium_user is not True:
                     raise Exception("Trying to use ENTERPRISE BlockedUser" + CommonProxyErrors.not_premium_user.value)
 
-                blocked_user_list = ENTERPRISE_BlockedUserList(prisma_client=prisma_client)
+                blocked_user_list = _ENTERPRISE_BlockedUserList(prisma_client=prisma_client)
                 imported_list.append(blocked_user_list)
             elif isinstance(callback, str) and callback == "banned_keywords":
                 try:
-                    from litellm.enterprise.enterprise_hooks.banned_keywords import (
-                        ENTERPRISE_BannedKeywords,
+                    from enterprise.enterprise_hooks.banned_keywords import (
+                        _ENTERPRISE_BannedKeywords,
                     )
                 except ImportError:
                     raise Exception(
@@ -341,11 +319,11 @@ def initialize_callbacks_on_proxy(
                 if premium_user is not True:
                     raise Exception("Trying to use ENTERPRISE BannedKeyword" + CommonProxyErrors.not_premium_user.value)
 
-                banned_keywords_obj = ENTERPRISE_BannedKeywords()
+                banned_keywords_obj = _ENTERPRISE_BannedKeywords()
                 imported_list.append(banned_keywords_obj)
             elif isinstance(callback, str) and callback == "detect_prompt_injection":
                 from litellm.proxy.hooks.prompt_injection_detection import (
-                    OPTIONAL_PromptInjectionDetection,
+                    _OPTIONAL_PromptInjectionDetection,
                 )
 
                 prompt_injection_params = None
@@ -353,20 +331,20 @@ def initialize_callbacks_on_proxy(
                     prompt_injection_params_in_config = litellm_settings["prompt_injection_params"]
                     prompt_injection_params = LiteLLMPromptInjectionParams(**prompt_injection_params_in_config)
 
-                prompt_injection_detection_obj = OPTIONAL_PromptInjectionDetection(
+                prompt_injection_detection_obj = _OPTIONAL_PromptInjectionDetection(
                     prompt_injection_params=prompt_injection_params,
                 )
                 imported_list.append(prompt_injection_detection_obj)
             elif isinstance(callback, str) and callback == "batch_redis_requests":
                 from litellm.proxy.hooks.batch_redis_get import (
-                    PROXY_BatchRedisRequests,
+                    _PROXY_BatchRedisRequests,
                 )
 
-                batch_redis_obj = PROXY_BatchRedisRequests()
+                batch_redis_obj = _PROXY_BatchRedisRequests()
                 imported_list.append(batch_redis_obj)
             elif isinstance(callback, str) and callback == "azure_content_safety":
                 from litellm.proxy.hooks.azure_content_safety import (
-                    PROXY_AzureContentSafety,
+                    _PROXY_AzureContentSafety,
                 )
 
                 azure_content_safety_params = litellm_settings["azure_content_safety_params"]
@@ -374,7 +352,7 @@ def initialize_callbacks_on_proxy(
                     if v is not None and isinstance(v, str) and v.startswith("os.environ/"):
                         azure_content_safety_params[k] = get_secret(v)
 
-                azure_content_safety_obj = PROXY_AzureContentSafety(
+                azure_content_safety_obj = _PROXY_AzureContentSafety(
                     **azure_content_safety_params,
                 )
                 imported_list.append(azure_content_safety_obj)
@@ -409,11 +387,9 @@ def initialize_callbacks_on_proxy(
                 imported_list.append(
                     _loaded_callback_or_raise(
                         entry=callback,
-                        loaded=_LOADED_CALLBACK.validate_python(
-                            get_instance_fn(
-                                value=callback,
-                                config_file_path=config_file_path,
-                            )
+                        loaded=get_instance_fn(
+                            value=callback,
+                            config_file_path=config_file_path,
                         ),
                     )
                 )
@@ -430,11 +406,9 @@ def initialize_callbacks_on_proxy(
         litellm.callbacks = [
             _loaded_callback_or_raise(
                 entry=value,
-                loaded=_LOADED_CALLBACK.validate_python(
-                    get_instance_fn(
-                        value=value,
-                        config_file_path=config_file_path,
-                    )
+                loaded=get_instance_fn(
+                    value=value,
+                    config_file_path=config_file_path,
                 ),
             )
         ]
@@ -454,7 +428,10 @@ def get_model_group_from_litellm_kwargs(kwargs: dict) -> str | None:
 def get_model_group_from_request_data(data: dict) -> str | None:
     _metadata: Final = data.get("metadata", None) or {}
     _model_group: Final = _metadata.get("model_group", None)
-    return _model_group if isinstance(_model_group, str) else None
+    if _model_group is not None:
+        return _model_group
+
+    return None
 
 
 def get_remaining_tokens_and_requests_from_request_data(data: dict) -> dict[str, str]:
@@ -565,7 +542,6 @@ LITELLM_PROXY_INTERNAL_METADATA_KEYS: Final = frozenset(
         PRE_CALL_EXECUTED_GUARDRAILS_KEY,
         SESSION_DEPLOYMENT_AFFINITY_TTL_METADATA_KEY,
         CONSUMED_REQUEST_TAGS_METADATA_KEY,
-        BAGGAGE_MAPPED_TAGS_METADATA_KEY,
         CLIENT_OUTPUT_CEILING_METADATA_KEY,
         ROUTING_REQUEST_TAGS_METADATA_KEY,
         "disable_global_guardrails",
@@ -737,7 +713,7 @@ def strip_callback_config(metadata: dict[str, object] | None) -> dict[str, objec
     return {k: v for k, v in metadata.items() if k not in _CALLBACK_CONFIG_SLOTS}
 
 
-def encrypt_callback_vars(metadata: object) -> object:
+def encrypt_callback_vars(metadata: Any) -> Any:
     """Return a deep copy of metadata with callback_vars values encrypted at rest.
 
     Idempotent: a value that already decrypts cleanly is left unchanged so
@@ -746,7 +722,7 @@ def encrypt_callback_vars(metadata: object) -> object:
     return _transform_callback_vars(metadata, _encrypt_if_plaintext)
 
 
-def decrypt_callback_vars(metadata: object) -> Any:
+def decrypt_callback_vars(metadata: Any) -> Any:
     """Return a deep copy of metadata with callback_vars values decrypted.
 
     Legacy plaintext rows pass through unchanged (decrypt failure → original).
@@ -754,48 +730,7 @@ def decrypt_callback_vars(metadata: object) -> Any:
     return _transform_callback_vars(metadata, _decrypt_or_passthrough)
 
 
-def decrypted_callback_metadata(metadata: object) -> object:
-    return _transform_callback_vars(metadata, _decrypt_or_passthrough)
-
-
-def decrypted_logging_entries(metadata: object) -> object:
-    return string_keyed(decrypted_callback_metadata(metadata)).get("logging")
-
-
-def key_logging_entries(metadata: object) -> tuple[Mapping[str, object], ...] | None:
-    entries: Final = decrypted_logging_entries(metadata)
-    if entries is None:
-        return None
-    return tuple(resolved for entry in _logging_objects(entries) if (resolved := _with_credential(entry)) is not None)
-
-
-def _logging_objects(entries: object) -> tuple[Mapping[str, object], ...]:
-    items: Final = () if entries in ("", {}) else object_sequence(entries)
-    if items is None or not all(isinstance(item, Mapping) for item in items):
-        raise TypeError(f"key metadata.logging must be a list of objects, got {type(entries).__name__}")
-    return tuple(string_keyed(item) for item in items)
-
-
-def _with_credential(entry: Mapping[str, object]) -> Mapping[str, object] | None:
-    credential_name: Final = entry.get("litellm_credential_name")
-    if not isinstance(credential_name, str):
-        return entry
-    credential_vars: Final = {
-        name: str(value)
-        for name, value in CredentialAccessor.get_credential_values(credential_name).items()
-        if name in CALLBACK_VAR_NAMES and value is not None
-    }
-    if not credential_vars:
-        verbose_proxy_logger.error(
-            "Ignoring key logging entry for %s: credential %r is not defined or holds no logging values",
-            entry.get("callback_name"),
-            credential_name,
-        )
-        return None
-    return {**entry, "callback_vars": {**credential_vars, **string_keyed(entry.get("callback_vars"))}}
-
-
-def _transform_callback_vars(metadata: object, transform: Callable[[str, object], object]) -> object:
+def _transform_callback_vars(metadata: object, transform: Callable[[str, Any], Any]) -> object:
     if not isinstance(metadata, dict):
         return metadata
     out: Final = copy.deepcopy(metadata)
